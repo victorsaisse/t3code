@@ -724,7 +724,8 @@ export type ThreadTurnStartBootstrapWorkspaceRepo =
 // one shared branch. Single-repo threads keep using prepareWorktree.
 const ThreadTurnStartBootstrapPrepareWorkspaceWorktrees = Schema.Struct({
   workspaceId: WorkspaceId,
-  workspaceRoot: TrimmedNonEmptyString,
+  // The shared root is derived server-side from the threadId (config.workspacesDir),
+  // so the client never sends it.
   branch: TrimmedNonEmptyString,
   repos: Schema.Array(ThreadTurnStartBootstrapWorkspaceRepo),
 });

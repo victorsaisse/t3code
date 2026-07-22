@@ -151,6 +151,10 @@ import {
   projectScriptIdFromCommand,
 } from "~/projectScripts";
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
+import {
+  clearWorkspaceThreadDraftContext,
+  getWorkspaceThreadDraftContext,
+} from "../workspaceThreadDraftStore";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import { useEnvironmentSettings } from "../hooks/useSettings";
@@ -4121,16 +4125,26 @@ function ChatViewContent(props: ChatViewProps) {
     }
     const threadIdForSend = activeThread.id;
     const isFirstMessage = !isServerThread || activeThread.messages.length === 0;
+    // Workspace thread (M2): a draft tagged with member repos provisions one
+    // worktree per repo, independent of the single-repo base-branch selection.
+    const workspaceThreadContext =
+      isFirstMessage && !activeThread.worktreePath
+        ? getWorkspaceThreadDraftContext(threadIdForSend)
+        : null;
     const baseBranchForWorktree =
-      isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath
+      isFirstMessage &&
+      sendEnvMode === "worktree" &&
+      !activeThread.worktreePath &&
+      workspaceThreadContext === null
         ? activeThreadBranch
         : null;
 
     // In worktree mode, require an explicit base branch so we don't silently
-    // fall back to local execution when branch selection is missing.
+    // fall back to local execution when branch selection is missing. Workspace
+    // threads resolve each member's base branch server-side, so they are exempt.
     const shouldCreateWorktree =
       isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath;
-    if (shouldCreateWorktree && !activeThreadBranch) {
+    if (shouldCreateWorktree && !activeThreadBranch && workspaceThreadContext === null) {
       setThreadError(threadIdForSend, "Select a base branch before sending in New worktree mode.");
       return;
     }
@@ -4330,6 +4344,21 @@ function ChatViewContent(props: ChatViewProps) {
                     runSetupScript: true,
                   }
                 : {}),
+              ...(workspaceThreadContext
+                ? {
+                    prepareWorkspaceWorktrees: {
+                      workspaceId: workspaceThreadContext.workspaceId,
+                      branch: buildTemporaryWorktreeBranchName(randomHex),
+                      repos: workspaceThreadContext.repos.map((repo) => ({
+                        projectId: repo.projectId,
+                        label: repo.label,
+                        projectCwd: repo.projectCwd,
+                        baseBranch: repo.baseBranch,
+                        deployOrder: repo.deployOrder,
+                      })),
+                    },
+                  }
+                : {}),
             }
           : undefined;
       beginLocalDispatch({ preparingWorktree: false });
@@ -4355,6 +4384,9 @@ function ChatViewContent(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
+        if (workspaceThreadContext) {
+          clearWorkspaceThreadDraftContext(threadIdForSend);
+        }
       }
     }
 

@@ -3,6 +3,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
+import type { EnvironmentWorkspace } from "@t3tools/client-runtime/state/shell";
 import {
   DEFAULT_RUNTIME_MODE,
   DEFAULT_SERVER_SETTINGS,
@@ -28,6 +29,10 @@ import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
+import {
+  setWorkspaceThreadDraftContext,
+  type WorkspaceThreadDraftRepo,
+} from "../workspaceThreadDraftStore";
 
 export function useNewThreadHandler() {
   const projects = useProjects();
@@ -187,6 +192,88 @@ export function useNewThreadHandler() {
       })();
     },
     [getCurrentRouteTarget, projectGroupingSettings, projects, router, serverConfigs],
+  );
+}
+
+/**
+ * Start a new workspace thread: a draft bound to the workspace's primary member
+ * project, tagged with transient workspace context so ChatView emits
+ * prepareWorkspaceWorktrees (one worktree per member repo) on first send.
+ */
+export function useWorkspaceThreadHandler() {
+  const projects = useProjects();
+  const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const router = useRouter();
+
+  return useCallback(
+    (workspace: EnvironmentWorkspace, options?: { replace?: boolean }): Promise<void> => {
+      const environmentId = workspace.environmentId;
+      const members = [...workspace.members].sort(
+        (left, right) => left.deployOrder - right.deployOrder,
+      );
+      const resolveProjectCwd = (projectId: string) =>
+        projects.find(
+          (candidate) => candidate.id === projectId && candidate.environmentId === environmentId,
+        )?.workspaceRoot ?? null;
+
+      const repos: WorkspaceThreadDraftRepo[] = [];
+      for (const member of members) {
+        const projectCwd = resolveProjectCwd(member.projectId);
+        if (projectCwd === null) {
+          continue;
+        }
+        repos.push({
+          projectId: member.projectId,
+          label: member.label,
+          projectCwd,
+          baseBranch: member.baseBranch,
+          deployOrder: member.deployOrder,
+        });
+      }
+      if (repos.length === 0) {
+        return Promise.resolve();
+      }
+
+      const primaryMember = members.find((member) => resolveProjectCwd(member.projectId) !== null);
+      if (!primaryMember) {
+        return Promise.resolve();
+      }
+      const primaryProjectRef = scopeProjectRef(environmentId, primaryMember.projectId);
+      const primaryProject = projects.find(
+        (candidate) =>
+          candidate.id === primaryMember.projectId && candidate.environmentId === environmentId,
+      );
+      const logicalProjectKey = primaryProject
+        ? deriveLogicalProjectKeyFromSettings(primaryProject, projectGroupingSettings)
+        : scopedProjectKey(primaryProjectRef);
+
+      const { applyStickyState, setLogicalProjectDraftThreadId } = useComposerDraftStore.getState();
+      const draftId = newDraftId();
+      const threadId = newThreadId();
+      const createdAt = new Date().toISOString();
+
+      setWorkspaceThreadDraftContext(threadId, { workspaceId: workspace.id, repos });
+
+      return (async () => {
+        setLogicalProjectDraftThreadId(logicalProjectKey, primaryProjectRef, draftId, {
+          threadId,
+          createdAt,
+          branch: null,
+          worktreePath: null,
+          envMode: "worktree",
+          startFromOrigin: false,
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+        });
+        applyStickyState(draftId);
+
+        await router.navigate({
+          to: "/draft/$draftId",
+          params: { draftId },
+          replace: options?.replace ?? false,
+        });
+      })();
+    },
+    [projectGroupingSettings, projects, router],
   );
 }
 

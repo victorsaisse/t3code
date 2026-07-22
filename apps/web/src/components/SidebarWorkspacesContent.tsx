@@ -1,9 +1,10 @@
 import type { EnvironmentWorkspace } from "@t3tools/client-runtime/state/shell";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
 import type { WorkspaceMember } from "@t3tools/contracts";
-import { BoxesIcon, LoaderIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { BoxesIcon, LoaderIcon, PlusIcon, SquarePenIcon, Trash2Icon } from "lucide-react";
 import { memo, useCallback, useMemo, useState } from "react";
 
+import { useWorkspaceThreadHandler } from "../hooks/useHandleNewThread";
 import { newWorkspaceId } from "../lib/utils";
 import { useProjects, useWorkspaces } from "../state/entities";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -207,6 +208,7 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
 }) {
   const { workspace } = props;
   const deleteWorkspace = useAtomCommand(workspaceEnvironment.delete, { reportFailure: false });
+  const startWorkspaceThread = useWorkspaceThreadHandler();
   const memberCount = workspace.members.length;
   const memberSummary = workspace.members.map((member) => member.label).join(" · ");
 
@@ -217,10 +219,14 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
     });
   }, [deleteWorkspace, workspace.environmentId, workspace.id]);
 
+  const handleNewWorkspaceThread = useCallback(() => {
+    void startWorkspaceThread(workspace);
+  }, [startWorkspaceThread, workspace]);
+
   return (
     <SidebarMenuItem className="rounded-md">
       <div className="group/workspace-row relative flex items-center">
-        <SidebarMenuButton className="h-8 gap-2 pr-8">
+        <SidebarMenuButton className="h-8 gap-2 pr-14" onClick={handleNewWorkspaceThread}>
           <BoxesIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
           <span className="flex min-w-0 flex-1 items-center gap-2">
             <span className="truncate text-xs font-medium text-foreground/90">
@@ -231,21 +237,41 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
             </span>
           </span>
         </SidebarMenuButton>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-label={`Delete workspace ${workspace.title}`}
-                className={`absolute top-1/2 right-0.5 -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/workspace-row:opacity-100 ${SIDEBAR_ICON_ACTION_BUTTON_CLASS}`}
-                onClick={handleDelete}
-              >
-                <Trash2Icon className="size-3.5" />
-              </button>
-            }
-          />
-          <TooltipPopup side="top">{memberSummary || "Delete workspace"}</TooltipPopup>
-        </Tooltip>
+        <div className="pointer-events-none absolute top-1/2 right-0.5 flex -translate-y-1/2 items-center opacity-0 transition-opacity duration-150 group-hover/workspace-row:pointer-events-auto group-hover/workspace-row:opacity-100">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`New workspace thread in ${workspace.title}`}
+                  data-testid="new-workspace-thread-button"
+                  className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
+                  onClick={handleNewWorkspaceThread}
+                >
+                  <SquarePenIcon className="size-3.5" />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">
+              {memberSummary ? `New thread across ${memberSummary}` : "New workspace thread"}
+            </TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`Delete workspace ${workspace.title}`}
+                  className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
+                  onClick={handleDelete}
+                >
+                  <Trash2Icon className="size-3.5" />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">Delete workspace</TooltipPopup>
+          </Tooltip>
+        </div>
       </div>
     </SidebarMenuItem>
   );
