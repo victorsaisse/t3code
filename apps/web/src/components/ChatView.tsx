@@ -205,6 +205,7 @@ import {
   useThread,
   useThreadProposedPlans,
   useThreadRefs,
+  useWorkspaces,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
@@ -1518,6 +1519,23 @@ function ChatViewContent(props: ChatViewProps) {
     ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
     : null;
   const activeProject = useProject(activeProjectRef);
+  // Workspace-thread identity: resolve the owning workspace (from the persisted
+  // thread after send, or the transient draft context before it) so the header
+  // and hero headline show the workspace rather than the primary member project.
+  const workspaces = useWorkspaces();
+  const activeWorkspaceTitle = useMemo(() => {
+    if (!activeThread) {
+      return null;
+    }
+    const workspaceId =
+      activeThread.workspaceId ??
+      getWorkspaceThreadDraftContext(activeThread.id)?.workspaceId ??
+      null;
+    if (workspaceId === null) {
+      return null;
+    }
+    return workspaces.find((workspace) => workspace.id === workspaceId)?.title ?? null;
+  }, [activeThread, workspaces]);
   const activeEnvironmentShell = useEnvironmentQuery(
     activeThread ? environmentShell.stateAtom(activeThread.environmentId) : null,
   );
@@ -5256,6 +5274,7 @@ function ChatViewContent(props: ChatViewProps) {
                     (repo) => repo.label,
                   ) ?? [])
             }
+            workspaceTitle={activeWorkspaceTitle}
             activeProjectName={activeProject?.title}
             activeProjectCwd={activeProject?.workspaceRoot ?? null}
             openInCwd={gitCwd}
@@ -5383,6 +5402,7 @@ function ChatViewContent(props: ChatViewProps) {
                         <DraftHeroHeadline
                           activeProjectRef={activeProjectRef}
                           activeProjectTitle={activeProject?.title ?? null}
+                          workspaceTitle={activeWorkspaceTitle}
                         />
                       </div>
                       <ComposerBannerStack className="relative z-0" items={composerBannerItems} />

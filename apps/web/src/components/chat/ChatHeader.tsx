@@ -26,6 +26,7 @@ interface ChatHeaderProps {
   draftId?: DraftId;
   activeThreadTitle: string;
   workspaceRepoLabels?: readonly string[];
+  workspaceTitle?: string | null;
   activeProjectName: string | undefined;
   activeProjectCwd: string | null;
   openInCwd: string | null;
@@ -62,6 +63,7 @@ export const ChatHeader = memo(function ChatHeader({
   draftId,
   activeThreadTitle,
   workspaceRepoLabels,
+  workspaceTitle,
   activeProjectName,
   activeProjectCwd,
   openInCwd,
@@ -87,8 +89,21 @@ export const ChatHeader = memo(function ChatHeader({
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
         {/* The project always leads the header: knowing which project a
             thread lives in is priority zero, and the thread title alone
-            doesn't answer it. */}
-        {activeProjectName ? (
+            doesn't answer it. For a workspace thread the owning workspace
+            leads instead of the primary member project. */}
+        {workspaceTitle ? (
+          <span className="inline-flex shrink-0 items-center gap-2">
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <BoxesIcon className="size-3.5 text-muted-foreground" />
+              <span className="max-w-40 truncate text-sm font-medium text-muted-foreground">
+                {workspaceTitle}
+              </span>
+            </span>
+            <span aria-hidden className="text-muted-foreground/40">
+              /
+            </span>
+          </span>
+        ) : activeProjectName ? (
           <span className="inline-flex shrink-0 items-center gap-2">
             <span className="inline-flex min-w-0 items-center gap-1.5">
               <ProjectFavicon
