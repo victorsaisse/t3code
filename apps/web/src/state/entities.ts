@@ -3,6 +3,7 @@ import type {
   EnvironmentProject,
   EnvironmentThread,
   EnvironmentThreadShell,
+  EnvironmentWorkspace,
 } from "@t3tools/client-runtime/state/shell";
 import { mergeEnvironmentThread } from "@t3tools/client-runtime/state/threads";
 import type {
@@ -19,6 +20,7 @@ import { Atom } from "effect/unstable/reactivity";
 import { useMemo } from "react";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentProjects } from "./projects";
+import { environmentWorkspaces } from "./workspaces";
 import { environmentServerConfigsAtom } from "./server";
 import { allEnvironmentShellsBootstrappedAtom } from "./shell";
 import { environmentThreadDetails, environmentThreadShells } from "./threads";
@@ -104,6 +106,10 @@ export function useEnvironmentThreadRefs(
 
 export function useProjects(): ReadonlyArray<EnvironmentProject> {
   return useAtomValue(environmentProjects.projectsAtom);
+}
+
+export function useWorkspaces(): ReadonlyArray<EnvironmentWorkspace> {
+  return useAtomValue(environmentWorkspaces.workspacesAtom);
 }
 
 export function useServerConfigs(): ReadonlyMap<EnvironmentId, ServerConfig> {
