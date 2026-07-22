@@ -118,6 +118,10 @@ export const GitRunStackedActionInput = Schema.Struct({
   filePaths: Schema.optional(
     Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
   ),
+  // Force a specific feature-branch name instead of the AI-derived one. Used so
+  // every changed repo in a workspace thread lands on one shared branch name
+  // (local collisions are still suffixed by resolveAutoFeatureBranchName).
+  branchNameOverride: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(255))),
 });
 export type GitRunStackedActionInput = typeof GitRunStackedActionInput.Type;
 

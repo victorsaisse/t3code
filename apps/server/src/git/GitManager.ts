@@ -1787,6 +1787,7 @@ export const make = Effect.gen(function* () {
     branch: string | null,
     commitMessage?: string,
     filePaths?: readonly string[],
+    branchNameOverride?: string,
   ) {
     const suggestion = yield* resolveCommitAndBranchSuggestion({
       cwd,
@@ -1804,7 +1805,8 @@ export const make = Effect.gen(function* () {
       });
     }
 
-    const preferredBranch = suggestion.branch ?? sanitizeFeatureBranchName(suggestion.subject);
+    const preferredBranch =
+      branchNameOverride ?? suggestion.branch ?? sanitizeFeatureBranchName(suggestion.subject);
     const existingBranchNames = yield* gitCore.listLocalBranchNames(cwd);
     const resolvedBranch = resolveAutoFeatureBranchName(existingBranchNames, preferredBranch);
 
@@ -1909,6 +1911,7 @@ export const make = Effect.gen(function* () {
             initialStatus.branch,
             input.commitMessage,
             input.filePaths,
+            input.branchNameOverride,
           );
           branchStep = result.branchStep;
           commitMessageForStep = result.resolvedCommitMessage;
