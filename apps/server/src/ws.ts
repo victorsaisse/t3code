@@ -3,6 +3,7 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -420,6 +421,7 @@ const makeWsRpcLayer = (
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const config = yield* ServerConfig.ServerConfig;
+      const hostFileSystem = yield* FileSystem.FileSystem;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
@@ -1063,6 +1065,73 @@ const makeWsRpcLayer = (
                 worktreePath: targetWorktreePath,
               });
               yield* refreshGitStatus(targetWorktreePath);
+            }
+
+            // Workspace thread (M2): eagerly create one worktree per member repo
+            // under a single shared root. The agent's cwd is the shared root and
+            // every member worktree is granted via additionalDirectories.
+            if (bootstrap?.prepareWorkspaceWorktrees) {
+              const prepare = bootstrap.prepareWorkspaceWorktrees;
+              const workspaceThreadRoot = `${config.workspacesDir}/${command.threadId}`;
+              yield* hostFileSystem.makeDirectory(workspaceThreadRoot, { recursive: true }).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationDispatchCommandError({
+                      message: `Failed to create workspace root '${workspaceThreadRoot}': ${cause.message}`,
+                    }),
+                ),
+              );
+
+              const provisioned = yield* Effect.forEach(
+                prepare.repos,
+                (repo) =>
+                  Effect.gen(function* () {
+                    const baseBranch = repo.baseBranch ?? "HEAD";
+                    let worktreeBaseRef = baseBranch;
+                    if (repo.startFromOrigin) {
+                      yield* gitWorkflow.fetchRemote({
+                        cwd: repo.projectCwd,
+                        remoteName: "origin",
+                      });
+                      const resolvedRemoteBase = yield* gitWorkflow.resolveRemoteTrackingCommit({
+                        cwd: repo.projectCwd,
+                        refName: baseBranch,
+                        fallbackRemoteName: "origin",
+                      });
+                      worktreeBaseRef = resolvedRemoteBase.commitSha;
+                    }
+                    const repoWorktree = yield* gitWorkflow.createWorktree({
+                      cwd: repo.projectCwd,
+                      refName: worktreeBaseRef,
+                      newRefName: prepare.branch,
+                      baseRefName: baseBranch,
+                      path: `${workspaceThreadRoot}/${repo.label}`,
+                    });
+                    yield* refreshGitStatus(repoWorktree.worktree.path);
+                    return {
+                      label: repo.label,
+                      projectId: repo.projectId,
+                      sourceRepoRoot: repo.projectCwd,
+                      repoWorktreePath: repoWorktree.worktree.path,
+                      branch: prepare.branch,
+                      baseBranch,
+                      deployOrder: repo.deployOrder,
+                    };
+                  }),
+                { concurrency: 1 },
+              );
+
+              targetWorktreePath = workspaceThreadRoot;
+              yield* orchestrationEngine.dispatch({
+                type: "thread.meta.update",
+                commandId: yield* serverCommandId("bootstrap-thread-workspace-meta-update"),
+                threadId: command.threadId,
+                branch: prepare.branch,
+                worktreePath: workspaceThreadRoot,
+                workspaceId: prepare.workspaceId,
+                workspaceRoot: workspaceThreadRoot,
+                worktrees: provisioned,
+              });
             }
 
             yield* runSetupProgram();

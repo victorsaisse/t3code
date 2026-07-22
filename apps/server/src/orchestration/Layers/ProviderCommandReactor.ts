@@ -493,6 +493,17 @@ const make = Effect.gen(function* () {
       projects: project ? [project] : [],
     });
 
+    // Workspace thread (M2): the sibling member-repo worktrees granted to the
+    // session, plus the manifest describing them. Empty for single-repo threads.
+    const workspaceAdditionalDirectories = thread.worktrees.map(
+      (worktree) => worktree.repoWorktreePath,
+    );
+    const workspaceRepos = thread.worktrees.map((worktree) => ({
+      label: worktree.label,
+      path: worktree.repoWorktreePath,
+      projectId: worktree.projectId,
+    }));
+
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderDriverKind;
@@ -504,6 +515,10 @@ const make = Effect.gen(function* () {
         ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
         modelSelection: desiredModelSelection,
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+        ...(workspaceAdditionalDirectories.length > 0
+          ? { additionalDirectories: workspaceAdditionalDirectories }
+          : {}),
+        ...(workspaceRepos.length > 0 ? { repos: workspaceRepos } : {}),
         runtimeMode: desiredRuntimeMode,
       });
 

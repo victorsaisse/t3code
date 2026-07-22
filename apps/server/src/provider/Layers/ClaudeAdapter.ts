@@ -72,6 +72,7 @@ import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
+import { buildRepoManifestText } from "../RepoManifest.ts";
 import {
   getClaudeModelCapabilities,
   isClaudeUltracodeEffort,
@@ -3518,11 +3519,22 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(ultracode ? { ultracode: true } : {}),
       };
       const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+      // Workspace threads (M2): grant read/write across every member repo
+      // worktree via additionalDirectories (deduped union with the shared cwd),
+      // and describe them to the agent via a repo manifest appended to the
+      // claude_code preset. Single-repo threads leave both empty/unchanged.
+      const workspaceAdditionalDirectories = [
+        ...new Set([...(input.cwd ? [input.cwd] : []), ...(input.additionalDirectories ?? [])]),
+      ];
+      const repoManifestAppend =
+        input.repos && input.repos.length > 0 ? buildRepoManifestText(input.repos) : "";
       const queryOptions: ClaudeQueryOptions = {
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(apiModelId ? { model: apiModelId } : {}),
         pathToClaudeCodeExecutable: claudeBinaryPath,
-        systemPrompt: { type: "preset", preset: "claude_code" },
+        systemPrompt: repoManifestAppend
+          ? { type: "preset", preset: "claude_code", append: repoManifestAppend }
+          : { type: "preset", preset: "claude_code" },
         settingSources: [...CLAUDE_SETTING_SOURCES],
         // `ultracode` is a Claude Code setting, not an API effort level. It is
         // normalized to `xhigh` above and paired with `settings.ultracode`.
@@ -3541,7 +3553,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         includePartialMessages: true,
         canUseTool,
         env: claudeEnvironment,
-        ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
+        ...(workspaceAdditionalDirectories.length > 0
+          ? { additionalDirectories: workspaceAdditionalDirectories }
+          : {}),
         ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
         ...(mcpSession
           ? {
