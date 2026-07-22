@@ -6,6 +6,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { BoxesIcon } from "lucide-react";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
@@ -24,6 +25,7 @@ interface ChatHeaderProps {
   activeThreadId: ThreadId;
   draftId?: DraftId;
   activeThreadTitle: string;
+  workspaceRepoLabels?: readonly string[];
   activeProjectName: string | undefined;
   activeProjectCwd: string | null;
   openInCwd: string | null;
@@ -59,6 +61,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   draftId,
   activeThreadTitle,
+  workspaceRepoLabels,
   activeProjectName,
   activeProjectCwd,
   openInCwd,
@@ -115,6 +118,21 @@ export const ChatHeader = memo(function ChatHeader({
           />
           <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
         </Tooltip>
+        {workspaceRepoLabels && workspaceRepoLabels.length > 0 ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent/60 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  <BoxesIcon className="size-3" />
+                  {workspaceRepoLabels.length} repos
+                </span>
+              }
+            />
+            <TooltipPopup side="top">
+              Workspace thread across {workspaceRepoLabels.join(" · ")}
+            </TooltipPopup>
+          </Tooltip>
+        ) : null}
       </div>
       <div
         data-chat-header-actions

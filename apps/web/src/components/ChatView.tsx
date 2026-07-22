@@ -5249,6 +5249,13 @@ function ChatViewContent(props: ChatViewProps) {
             activeThreadId={activeThread.id}
             {...(routeKind === "draft" && draftId ? { draftId } : {})}
             activeThreadTitle={activeThread.title}
+            workspaceRepoLabels={
+              activeThread.worktrees.length > 0
+                ? activeThread.worktrees.map((worktree) => worktree.label)
+                : (getWorkspaceThreadDraftContext(activeThread.id)?.repos.map(
+                    (repo) => repo.label,
+                  ) ?? [])
+            }
             activeProjectName={activeProject?.title}
             activeProjectCwd={activeProject?.workspaceRoot ?? null}
             openInCwd={gitCwd}
