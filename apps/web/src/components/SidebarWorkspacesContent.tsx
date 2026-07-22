@@ -16,6 +16,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
@@ -142,8 +143,8 @@ const AddWorkspaceDialog = memo(function AddWorkspaceDialog(props: {
             A workspace is a named set of repositories you can drive from one thread.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-4 py-2">
-          <div className="flex flex-col gap-1.5">
+        <DialogPanel className="flex flex-col gap-5 pt-2 pb-2">
+          <div className="flex flex-col gap-2">
             <label className="text-xs font-medium text-muted-foreground" htmlFor="workspace-name">
               Name
             </label>
@@ -155,20 +156,20 @@ const AddWorkspaceDialog = memo(function AddWorkspaceDialog(props: {
               onChange={(event) => setTitle(event.target.value)}
             />
           </div>
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
             <span className="text-xs font-medium text-muted-foreground">Member repositories</span>
             {projects.length === 0 ? (
               <p className="text-xs text-muted-foreground/70">
                 Add projects first, then group them into a workspace.
               </p>
             ) : (
-              <div className="flex max-h-56 flex-col gap-1 overflow-y-auto rounded-md border border-border/60 p-1">
+              <div className="flex max-h-56 flex-col gap-0.5 overflow-y-auto rounded-lg border border-border/60 p-1.5">
                 {projects.map((project) => {
                   const key = projectKey(project);
                   return (
                     <label
                       key={key}
-                      className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+                      className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-sm hover:bg-accent"
                     >
                       <Checkbox
                         checked={selectedKeys.has(key)}
@@ -182,7 +183,7 @@ const AddWorkspaceDialog = memo(function AddWorkspaceDialog(props: {
             )}
           </div>
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
-        </div>
+        </DialogPanel>
         <DialogFooter>
           <DialogClose
             render={
