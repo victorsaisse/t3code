@@ -31,6 +31,9 @@ type CommandInput<T extends CommandType> = Omit<
 export type CreateProjectInput = CommandInput<"project.create">;
 export type UpdateProjectInput = CommandInput<"project.meta.update">;
 export type DeleteProjectInput = CommandInput<"project.delete">;
+export type CreateWorkspaceInput = CommandInput<"workspace.create">;
+export type UpdateWorkspaceInput = CommandInput<"workspace.meta.update">;
+export type DeleteWorkspaceInput = CommandInput<"workspace.delete">;
 export type CreateThreadInput = CommandInput<"thread.create">;
 export type DeleteThreadInput = CommandInput<"thread.delete">;
 export type ArchiveThreadInput = CommandInput<"thread.archive">;
@@ -109,6 +112,38 @@ export const deleteProject: (input: DeleteProjectInput) => CommandEffect = Effec
   return yield* dispatch({
     ...input,
     type: "project.delete",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const createWorkspace: (input: CreateWorkspaceInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.createWorkspace",
+)(function* (input) {
+  const metadata = yield* timestampedCommandMetadata(input);
+  return yield* dispatch({
+    ...input,
+    type: "workspace.create",
+    commandId: metadata.commandId,
+    createdAt: metadata.createdAt,
+  });
+});
+
+export const updateWorkspace: (input: UpdateWorkspaceInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.updateWorkspace",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "workspace.meta.update",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const deleteWorkspace: (input: DeleteWorkspaceInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.deleteWorkspace",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "workspace.delete",
     commandId: yield* commandId(input),
   });
 });

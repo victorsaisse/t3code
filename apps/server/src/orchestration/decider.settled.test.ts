@@ -28,6 +28,7 @@ function makeReadModel(
   return {
     snapshotSequence: 0,
     projects: [],
+    workspaces: [],
     threads: [
       {
         id: ThreadId.make("thread-1"),

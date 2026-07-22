@@ -19,6 +19,9 @@ import {
   requireThreadArchived,
   requireThreadAbsent,
   requireThreadNotArchived,
+  requireUniqueWorkspaceMemberLabels,
+  requireWorkspace,
+  requireWorkspaceAbsent,
 } from "./commandInvariants.ts";
 import { projectEvent } from "./projector.ts";
 
@@ -276,6 +279,93 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "project.deleted" as const,
         payload: {
           projectId: command.projectId,
+          deletedAt: occurredAt,
+        },
+      };
+    }
+
+    case "workspace.create": {
+      yield* requireWorkspaceAbsent({
+        readModel,
+        command,
+        workspaceId: command.workspaceId,
+      });
+      yield* requireUniqueWorkspaceMemberLabels({
+        command,
+        members: command.members,
+      });
+
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "workspace",
+          aggregateId: command.workspaceId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "workspace.created",
+        payload: {
+          workspaceId: command.workspaceId,
+          title: command.title,
+          members: command.members,
+          defaultModelSelection: command.defaultModelSelection ?? null,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "workspace.meta.update": {
+      yield* requireWorkspace({
+        readModel,
+        command,
+        workspaceId: command.workspaceId,
+      });
+      if (command.members !== undefined) {
+        yield* requireUniqueWorkspaceMemberLabels({
+          command,
+          members: command.members,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "workspace",
+          aggregateId: command.workspaceId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "workspace.meta-updated",
+        payload: {
+          workspaceId: command.workspaceId,
+          ...(command.title !== undefined ? { title: command.title } : {}),
+          ...(command.members !== undefined ? { members: command.members } : {}),
+          ...(command.defaultModelSelection !== undefined
+            ? { defaultModelSelection: command.defaultModelSelection }
+            : {}),
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "workspace.delete": {
+      yield* requireWorkspace({
+        readModel,
+        command,
+        workspaceId: command.workspaceId,
+      });
+      // Workspace threads (which reference a workspace) are introduced in M2;
+      // in M1 there is nothing to cascade, so a workspace deletes directly.
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "workspace",
+          aggregateId: command.workspaceId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "workspace.deleted" as const,
+        payload: {
+          workspaceId: command.workspaceId,
           deletedAt: occurredAt,
         },
       };

@@ -14,6 +14,9 @@ import {
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
+  WorkspaceCreatedPayload,
+  WorkspaceDeletedPayload,
+  WorkspaceMetaUpdatedPayload,
   ThreadActivityAppendedPayload,
   ThreadArchivedPayload,
   ThreadCreatedPayload,
@@ -184,6 +187,7 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
   return {
     snapshotSequence: 0,
     projects: [],
+    workspaces: [],
     threads: [],
     updatedAt: nowIso,
   };
@@ -261,6 +265,67 @@ export function projectEvent(
                   updatedAt: payload.deletedAt,
                 }
               : project,
+          ),
+        })),
+      );
+
+    case "workspace.created":
+      return decodeForEvent(WorkspaceCreatedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const existing = nextBase.workspaces.find((entry) => entry.id === payload.workspaceId);
+          const nextWorkspace = {
+            id: payload.workspaceId,
+            title: payload.title,
+            members: payload.members,
+            defaultModelSelection: payload.defaultModelSelection,
+            createdAt: payload.createdAt,
+            updatedAt: payload.updatedAt,
+            deletedAt: null,
+          };
+
+          return {
+            ...nextBase,
+            workspaces: existing
+              ? nextBase.workspaces.map((entry) =>
+                  entry.id === payload.workspaceId ? nextWorkspace : entry,
+                )
+              : [...nextBase.workspaces, nextWorkspace],
+          };
+        }),
+      );
+
+    case "workspace.meta-updated":
+      return decodeForEvent(WorkspaceMetaUpdatedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          workspaces: nextBase.workspaces.map((workspace) =>
+            workspace.id === payload.workspaceId
+              ? {
+                  ...workspace,
+                  ...(payload.title !== undefined ? { title: payload.title } : {}),
+                  ...(payload.members !== undefined ? { members: payload.members } : {}),
+                  ...(payload.defaultModelSelection !== undefined
+                    ? { defaultModelSelection: payload.defaultModelSelection }
+                    : {}),
+                  updatedAt: payload.updatedAt,
+                }
+              : workspace,
+          ),
+        })),
+      );
+
+    case "workspace.deleted":
+      return decodeForEvent(WorkspaceDeletedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          workspaces: nextBase.workspaces.map((workspace) =>
+            workspace.id === payload.workspaceId
+              ? {
+                  ...workspace,
+                  deletedAt: payload.deletedAt,
+                  updatedAt: payload.deletedAt,
+                }
+              : workspace,
           ),
         })),
       );

@@ -8,6 +8,7 @@ import { applyShellStreamEvent } from "./shellReducer.ts";
 const baseSnapshot: OrchestrationShellSnapshot = {
   snapshotSequence: 0,
   projects: [],
+  workspaces: [],
   threads: [],
   updatedAt: "2026-04-01T00:00:00.000Z",
 };

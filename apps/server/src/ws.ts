@@ -57,6 +57,7 @@ import {
   type TerminalError,
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
+  type WorkspaceId,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -638,6 +639,17 @@ const makeWsRpcLayer = (
                 projectId: event.payload.projectId,
               }),
             );
+          case "workspace.created":
+          case "workspace.meta-updated":
+            return workspaceUpsertOrRemove(event.payload.workspaceId, event.sequence);
+          case "workspace.deleted":
+            return Effect.succeed(
+              Option.some({
+                kind: "workspace-removed" as const,
+                sequence: event.sequence,
+                workspaceId: event.payload.workspaceId,
+              }),
+            );
           case "thread.deleted":
           case "thread.archived":
             return Effect.succeed(
@@ -663,7 +675,7 @@ const makeWsRpcLayer = (
       // If both attempts fail, log and drop the stream item; treating an error as
       // a missing row would incorrectly remove a still-active aggregate.
       const retryShellProjectionRead = <A, E>(
-        aggregateKind: "project" | "thread",
+        aggregateKind: "project" | "workspace" | "thread",
         aggregateId: string,
         read: Effect.Effect<A, E>,
       ): Effect.Effect<Option.Option<A>, never, never> =>
@@ -703,6 +715,35 @@ const makeWsRpcLayer = (
                     kind: "project-upserted" as const,
                     sequence,
                     project: nextProject,
+                  }),
+              }),
+            ),
+          ),
+        );
+
+      const workspaceUpsertOrRemove = (
+        workspaceId: WorkspaceId,
+        sequence: number,
+      ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never, never> =>
+        retryShellProjectionRead(
+          "workspace",
+          workspaceId,
+          projectionSnapshotQuery.getWorkspaceShellById(workspaceId),
+        ).pipe(
+          Effect.map(
+            Option.flatMap((workspace) =>
+              Option.match(workspace, {
+                onNone: () =>
+                  Option.some<OrchestrationShellStreamEvent>({
+                    kind: "workspace-removed" as const,
+                    sequence,
+                    workspaceId,
+                  }),
+                onSome: (nextWorkspace) =>
+                  Option.some<OrchestrationShellStreamEvent>({
+                    kind: "workspace-upserted" as const,
+                    sequence,
+                    workspace: nextWorkspace,
                   }),
               }),
             ),

@@ -5,10 +5,15 @@ import type {
   OrchestrationShellSnapshot,
   OrchestrationThread,
   OrchestrationThreadShell,
+  OrchestrationWorkspaceShell,
   ThreadId,
 } from "@t3tools/contracts";
 
 export interface EnvironmentProject extends OrchestrationProjectShell {
+  readonly environmentId: EnvironmentId;
+}
+
+export interface EnvironmentWorkspace extends OrchestrationWorkspaceShell {
   readonly environmentId: EnvironmentId;
 }
 
@@ -27,6 +32,13 @@ export function scopeProject(
   project: OrchestrationProjectShell,
 ): EnvironmentProject {
   return { ...project, environmentId };
+}
+
+export function scopeWorkspace(
+  environmentId: EnvironmentId,
+  workspace: OrchestrationWorkspaceShell,
+): EnvironmentWorkspace {
+  return { ...workspace, environmentId };
 }
 
 export function scopeThreadShell(
