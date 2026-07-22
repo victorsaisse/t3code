@@ -68,7 +68,10 @@ it.layer(NodeServices.layer)("workspace decider", (it) => {
       expect(event.aggregateKind).toBe("workspace");
       if (event.type === "workspace.created") {
         expect(event.payload.workspaceId).toBe("workspace-frontend");
-        expect(event.payload.members.map((m) => m.label)).toEqual(["web", "mobile"]);
+        expect(event.payload.members.map((m: { label: string }) => m.label)).toEqual([
+          "web",
+          "mobile",
+        ]);
         expect(event.payload.defaultModelSelection).toBeNull();
       }
     }),
@@ -202,7 +205,10 @@ it.layer(NodeServices.layer)("workspace projector", (it) => {
       });
       expect(updated.workspaces[0]!.title).toBe("Renamed");
       expect(updated.workspaces[0]!.defaultModelSelection).not.toBeNull();
-      expect(updated.workspaces[0]!.members.map((m) => m.label)).toEqual(["web", "mobile"]);
+      expect(updated.workspaces[0]!.members.map((m: { label: string }) => m.label)).toEqual([
+        "web",
+        "mobile",
+      ]);
 
       const deleted = yield* projectEvent(updated, {
         sequence: 3,

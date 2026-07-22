@@ -441,6 +441,11 @@ export function projectEvent(
               : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
+            ...(payload.workspaceId !== undefined ? { workspaceId: payload.workspaceId } : {}),
+            ...(payload.workspaceRoot !== undefined
+              ? { workspaceRoot: payload.workspaceRoot }
+              : {}),
+            ...(payload.worktrees !== undefined ? { worktrees: payload.worktrees } : {}),
             updatedAt: payload.updatedAt,
           }),
         })),

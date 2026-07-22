@@ -15,6 +15,8 @@ import {
   RuntimeMode,
   ThreadId,
   TurnId,
+  WorkspaceId,
+  WorkspaceWorktree,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -43,6 +45,10 @@ export const ProjectionThread = Schema.Struct({
   pendingUserInputCount: NonNegativeInt,
   hasActionableProposedPlan: NonNegativeInt,
   deletedAt: Schema.NullOr(IsoDateTime),
+  // Workspace-thread extension (M2): null / [] for ordinary single-repo threads.
+  workspaceId: Schema.NullOr(WorkspaceId),
+  workspaceRoot: Schema.NullOr(Schema.String),
+  worktrees: Schema.Array(WorkspaceWorktree),
 });
 export type ProjectionThread = typeof ProjectionThread.Type;
 

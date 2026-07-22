@@ -673,6 +673,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             pendingUserInputCount: 0,
             hasActionableProposedPlan: 0,
             deletedAt: null,
+            workspaceId: null,
+            workspaceRoot: null,
+            worktrees: [],
           });
           return;
 
@@ -754,6 +757,15 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
+              : {}),
+            ...(event.payload.workspaceId !== undefined
+              ? { workspaceId: event.payload.workspaceId }
+              : {}),
+            ...(event.payload.workspaceRoot !== undefined
+              ? { workspaceRoot: event.payload.workspaceRoot }
+              : {}),
+            ...(event.payload.worktrees !== undefined
+              ? { worktrees: event.payload.worktrees }
               : {}),
             updatedAt: event.payload.updatedAt,
           });

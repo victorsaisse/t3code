@@ -378,6 +378,13 @@ export const OrchestrationThread = Schema.Struct({
   ),
   settledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   deletedAt: Schema.NullOr(IsoDateTime),
+  // Workspace-thread extension (M2). For a workspace thread, worktreePath ===
+  // workspaceRoot (the shared cwd) and worktrees carries the per-repo list.
+  workspaceId: Schema.NullOr(WorkspaceId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  workspaceRoot: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  worktrees: Schema.Array(WorkspaceWorktree).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   messages: Schema.Array(OrchestrationMessage),
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
@@ -444,6 +451,11 @@ export const OrchestrationThreadShell = Schema.Struct({
   hasPendingApprovals: Schema.Boolean,
   hasPendingUserInput: Schema.Boolean,
   hasActionableProposedPlan: Schema.Boolean,
+  workspaceId: Schema.NullOr(WorkspaceId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  workspaceRoot: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  worktrees: Schema.Array(WorkspaceWorktree).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 
@@ -657,6 +669,9 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  workspaceId: Schema.optional(Schema.NullOr(WorkspaceId)),
+  workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  worktrees: Schema.optional(Schema.Array(WorkspaceWorktree)),
 });
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
@@ -693,9 +708,31 @@ const ThreadTurnStartBootstrapPrepareWorktree = Schema.Struct({
   startFromOrigin: Schema.optional(Schema.Boolean),
 });
 
+// One member repo to provision as a worktree subfolder of the shared root (M2).
+export const ThreadTurnStartBootstrapWorkspaceRepo = Schema.Struct({
+  projectId: ProjectId,
+  label: TrimmedNonEmptyString,
+  projectCwd: TrimmedNonEmptyString,
+  baseBranch: Schema.NullOr(TrimmedNonEmptyString),
+  deployOrder: NonNegativeInt,
+  startFromOrigin: Schema.optional(Schema.Boolean),
+});
+export type ThreadTurnStartBootstrapWorkspaceRepo =
+  typeof ThreadTurnStartBootstrapWorkspaceRepo.Type;
+
+// Eagerly create one worktree per member repo under a single shared root, all on
+// one shared branch. Single-repo threads keep using prepareWorktree.
+const ThreadTurnStartBootstrapPrepareWorkspaceWorktrees = Schema.Struct({
+  workspaceId: WorkspaceId,
+  workspaceRoot: TrimmedNonEmptyString,
+  branch: TrimmedNonEmptyString,
+  repos: Schema.Array(ThreadTurnStartBootstrapWorkspaceRepo),
+});
+
 const ThreadTurnStartBootstrap = Schema.Struct({
   createThread: Schema.optional(ThreadTurnStartBootstrapCreateThread),
   prepareWorktree: Schema.optional(ThreadTurnStartBootstrapPrepareWorktree),
+  prepareWorkspaceWorktrees: Schema.optional(ThreadTurnStartBootstrapPrepareWorkspaceWorktrees),
   runSetupScript: Schema.optional(Schema.Boolean),
 });
 
@@ -1047,6 +1084,9 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  workspaceId: Schema.optional(Schema.NullOr(WorkspaceId)),
+  workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  worktrees: Schema.optional(Schema.Array(WorkspaceWorktree)),
   updatedAt: IsoDateTime,
 });
 

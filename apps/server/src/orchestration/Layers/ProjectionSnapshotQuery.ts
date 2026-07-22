@@ -28,6 +28,7 @@ import {
   ThreadId,
   WorkspaceId,
   WorkspaceMember,
+  WorkspaceWorktree,
 } from "@t3tools/contracts";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
@@ -89,6 +90,7 @@ const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    worktrees: Schema.fromJsonString(Schema.Array(WorkspaceWorktree)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -387,7 +389,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          workspace_id AS "workspaceId",
+          workspace_root AS "workspaceRoot",
+          worktrees_json AS "worktrees"
         FROM projection_threads
         ORDER BY created_at ASC, thread_id ASC
       `,
@@ -417,7 +422,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          workspace_id AS "workspaceId",
+          workspace_root AS "workspaceRoot",
+          worktrees_json AS "worktrees"
         FROM projection_threads
         WHERE deleted_at IS NULL
           AND archived_at IS NULL
@@ -449,7 +457,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          workspace_id AS "workspaceId",
+          workspace_root AS "workspaceRoot",
+          worktrees_json AS "worktrees"
         FROM projection_threads
         WHERE deleted_at IS NULL
           AND archived_at IS NOT NULL
@@ -833,7 +844,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          workspace_id AS "workspaceId",
+          workspace_root AS "workspaceRoot",
+          worktrees_json AS "worktrees"
         FROM projection_threads
         WHERE thread_id = ${threadId}
           AND deleted_at IS NULL
@@ -1281,6 +1295,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 interactionMode: row.interactionMode,
                 branch: row.branch,
                 worktreePath: row.worktreePath,
+                workspaceId: row.workspaceId,
+                workspaceRoot: row.workspaceRoot,
+                worktrees: row.worktrees,
                 latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
@@ -1515,6 +1532,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   interactionMode: row.interactionMode,
                   branch: row.branch,
                   worktreePath: row.worktreePath,
+                  workspaceId: row.workspaceId,
+                  workspaceRoot: row.workspaceRoot,
+                  worktrees: row.worktrees,
                   latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
@@ -1665,6 +1685,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                         interactionMode: row.interactionMode,
                         branch: row.branch,
                         worktreePath: row.worktreePath,
+                        workspaceId: row.workspaceId,
+                        workspaceRoot: row.workspaceRoot,
+                        worktrees: row.worktrees,
                         latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                         createdAt: row.createdAt,
                         updatedAt: row.updatedAt,
@@ -1804,6 +1827,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   interactionMode: row.interactionMode,
                   branch: row.branch,
                   worktreePath: row.worktreePath,
+                  workspaceId: row.workspaceId,
+                  workspaceRoot: row.workspaceRoot,
+                  worktrees: row.worktrees,
                   latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
@@ -2074,6 +2100,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         hasPendingApprovals: threadRow.value.pendingApprovalCount > 0,
         hasPendingUserInput: threadRow.value.pendingUserInputCount > 0,
         hasActionableProposedPlan: threadRow.value.hasActionableProposedPlan > 0,
+        workspaceId: threadRow.value.workspaceId,
+        workspaceRoot: threadRow.value.workspaceRoot,
+        worktrees: threadRow.value.worktrees,
       } satisfies OrchestrationThreadShell);
     });
 

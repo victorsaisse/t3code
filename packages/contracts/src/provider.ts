@@ -4,6 +4,7 @@ import {
   ApprovalRequestId,
   EventId,
   IsoDateTime,
+  ProjectId,
   ProviderItemId,
   ThreadId,
   TurnId,
@@ -31,6 +32,16 @@ const ProviderSessionStatus = Schema.Literals([
   "closed",
 ]);
 
+// One member repo in a workspace-thread session, surfaced to the agent as a
+// manifest entry and (Claude) as an additionalDirectories grant (M2).
+export const ProviderSessionRepo = Schema.Struct({
+  label: TrimmedNonEmptyString,
+  path: TrimmedNonEmptyString,
+  projectId: ProjectId,
+  description: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProviderSessionRepo = typeof ProviderSessionRepo.Type;
+
 export const ProviderSession = Schema.Struct({
   provider: ProviderDriverKind,
   // Optional during the driver/instance migration. Once every producer
@@ -47,6 +58,10 @@ export const ProviderSession = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   lastError: Schema.optional(TrimmedNonEmptyString),
+  // Workspace-thread extras: sibling repo worktrees granted to the session and
+  // the manifest describing them (M2).
+  additionalDirectories: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  repos: Schema.optional(Schema.Array(ProviderSessionRepo)),
 });
 export type ProviderSession = typeof ProviderSession.Type;
 
@@ -61,6 +76,10 @@ export const ProviderSessionStartInput = Schema.Struct({
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   runtimeMode: RuntimeMode,
+  // Absolute worktree paths of sibling member repos + their manifest (M2). Only
+  // populated for workspace threads; single-repo threads leave these unset.
+  additionalDirectories: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  repos: Schema.optional(Schema.Array(ProviderSessionRepo)),
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 

@@ -68,6 +68,9 @@ export function applyThreadDetailEvent(
           interactionMode: event.payload.interactionMode,
           branch: event.payload.branch,
           worktreePath: event.payload.worktreePath,
+          workspaceId: null,
+          workspaceRoot: null,
+          worktrees: [],
           latestTurn: null,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
@@ -138,6 +141,13 @@ export function applyThreadDetailEvent(
           ...(event.payload.worktreePath !== undefined
             ? { worktreePath: event.payload.worktreePath }
             : {}),
+          ...(event.payload.workspaceId !== undefined
+            ? { workspaceId: event.payload.workspaceId }
+            : {}),
+          ...(event.payload.workspaceRoot !== undefined
+            ? { workspaceRoot: event.payload.workspaceRoot }
+            : {}),
+          ...(event.payload.worktrees !== undefined ? { worktrees: event.payload.worktrees } : {}),
           updatedAt: event.payload.updatedAt,
         },
       };
