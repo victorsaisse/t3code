@@ -21,11 +21,15 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useWorkspaceThreadHandler } from "../hooks/useHandleNewThread";
+import { useThreadActions } from "../hooks/useThreadActions";
+import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { useClientSettings } from "~/hooks/useSettings";
 import { readLocalApi } from "../localApi";
 import { newWorkspaceId } from "../lib/utils";
 import { useProjects, useThreadShells, useWorkspaces } from "../state/entities";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useUiStateStore } from "../uiStateStore";
 import { workspaceEnvironment } from "../state/workspaces";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { cn } from "../lib/utils";
@@ -260,6 +264,37 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
     if (renamingThreadId !== null) renameCommittedRef.current = false;
   }, [renamingThreadId]);
 
+  // Full thread context menu (matches project threads): mark unread, copy path,
+  // copy id, delete. deleteThread from useThreadActions handles workspace-thread
+  // worktree cleanup (N member worktrees + shared root).
+  const { deleteThread } = useThreadActions();
+  const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
+  const confirmThreadDelete = useClientSettings((settings) => settings.confirmThreadDelete);
+  const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{ threadId: ThreadId }>({
+    onCopy: (ctx) =>
+      toastManager.add({ type: "success", title: "Thread ID copied", description: ctx.threadId }),
+    onError: (error) =>
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to copy thread ID",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      ),
+  });
+  const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
+    onCopy: (ctx) =>
+      toastManager.add({ type: "success", title: "Path copied", description: ctx.path }),
+    onError: (error) =>
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to copy path",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      ),
+  });
+
   const startRename = useCallback((thread: EnvironmentThreadShell) => {
     setRenamingThreadId(thread.id);
     setRenamingTitle(thread.title);
@@ -298,17 +333,76 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
     (thread: EnvironmentThreadShell, position: { x: number; y: number }) => {
       const api = readLocalApi();
       if (!api) return;
+      const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+      const threadKey = scopedThreadKey(threadRef);
       void (async () => {
         const choice = await api.contextMenu.show(
-          [{ id: "rename", label: "Rename thread" }],
+          [
+            { id: "rename", label: "Rename thread" },
+            { id: "mark-unread", label: "Mark unread" },
+            { id: "copy-path", label: "Copy Path" },
+            { id: "copy-thread-id", label: "Copy Thread ID" },
+            { id: "delete", label: "Delete", destructive: true, icon: "trash" },
+          ],
           position,
         );
         if (choice === "rename") {
           startRename(thread);
+          return;
+        }
+        if (choice === "mark-unread") {
+          markThreadUnread(threadKey, thread.latestTurn?.completedAt);
+          return;
+        }
+        if (choice === "copy-path") {
+          if (!thread.worktreePath) {
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Path unavailable",
+                description: "This thread does not have a workspace path to copy.",
+              }),
+            );
+            return;
+          }
+          copyPathToClipboard(thread.worktreePath, { path: thread.worktreePath });
+          return;
+        }
+        if (choice === "copy-thread-id") {
+          copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+          return;
+        }
+        if (choice !== "delete") return;
+        if (confirmThreadDelete) {
+          const confirmed = await api.dialogs.confirm(
+            [
+              `Delete thread "${thread.title}"?`,
+              "This permanently clears conversation history and removes its worktrees.",
+            ].join("\n"),
+          );
+          if (!confirmed) return;
+        }
+        const result = await deleteThread(threadRef);
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to delete thread",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
         }
       })();
     },
-    [startRename],
+    [
+      confirmThreadDelete,
+      copyPathToClipboard,
+      copyThreadIdToClipboard,
+      deleteThread,
+      markThreadUnread,
+      startRename,
+    ],
   );
 
   const handleDelete = useCallback(async () => {
