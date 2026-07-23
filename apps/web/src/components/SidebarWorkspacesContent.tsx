@@ -4,6 +4,7 @@ import type {
 } from "@t3tools/client-runtime/state/shell";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
+import { MAX_MEMBER_LABEL_LENGTH } from "@t3tools/shared/path";
 import type { EnvironmentId, ThreadId, WorkspaceId, WorkspaceMember } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import {
@@ -59,7 +60,7 @@ function deriveMemberLabel(title: string, index: number, taken: ReadonlySet<stri
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
-      .slice(0, 32) || `repo-${index + 1}`;
+      .slice(0, MAX_MEMBER_LABEL_LENGTH) || `repo-${index + 1}`;
   if (!taken.has(base)) {
     return base;
   }

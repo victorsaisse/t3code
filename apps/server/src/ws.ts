@@ -120,6 +120,8 @@ import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
+import type { MemberWorktreePathIssue } from "@t3tools/shared/path";
+import { provisionWorkspaceWorktrees } from "./orchestration/workspaceProvisioning.ts";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -571,6 +573,64 @@ const makeWsRpcLayer = (
             }),
           ),
         );
+
+      // Records a per-repo skip during workspace provisioning as a thread
+      // activity, so a skipped empty/invalid member is visible without aborting
+      // the bootstrap. Best-effort: a failed append is logged, never thrown.
+      const appendWorkspaceProvisionWarning = (input: {
+        readonly threadId: ThreadId;
+        readonly label: string;
+        readonly baseBranch: string;
+        readonly issue?: MemberWorktreePathIssue;
+        readonly cause?: Cause.Cause<unknown>;
+      }): Effect.Effect<void, never> =>
+        Effect.gen(function* () {
+          const createdAt = yield* nowIso;
+          const reason = input.issue
+            ? input.issue === "path-too-long"
+              ? "the worktree path would be too long"
+              : `the label is invalid (${input.issue})`
+            : `it has no commits yet or base branch '${input.baseBranch}' is missing`;
+          const detail = input.cause
+            ? Cause.squash(input.cause) instanceof Error
+              ? (Cause.squash(input.cause) as Error).message
+              : "worktree provisioning failed"
+            : (input.issue ?? null);
+          yield* Effect.all({
+            commandId: serverCommandId("workspace-provision-activity"),
+            activityId: serverEventId,
+          }).pipe(
+            Effect.flatMap(({ commandId, activityId }) =>
+              orchestrationEngine.dispatch({
+                type: "thread.activity.append",
+                commandId,
+                threadId: input.threadId,
+                activity: {
+                  id: activityId,
+                  tone: "error",
+                  kind: "workspace-provision.skipped",
+                  summary: `Skipped repo '${input.label}': ${reason}. Other repos were still provisioned.`,
+                  payload: {
+                    label: input.label,
+                    baseBranch: input.baseBranch,
+                    issue: input.issue ?? null,
+                    detail,
+                  },
+                  turnId: null,
+                  createdAt,
+                },
+                createdAt,
+              }),
+            ),
+            Effect.catchCause((cause) =>
+              Effect.logWarning("workspace provisioning warning could not be recorded", {
+                threadId: input.threadId,
+                label: input.label,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+          );
+        });
 
       const toBootstrapDispatchCommandCauseError = (cause: Cause.Cause<unknown>) => {
         const error = Cause.squash(cause);
@@ -1086,44 +1146,28 @@ const makeWsRpcLayer = (
                 ),
               );
 
-              const provisioned = yield* Effect.forEach(
-                prepare.repos,
-                (repo) =>
-                  Effect.gen(function* () {
-                    const baseBranch = repo.baseBranch ?? "HEAD";
-                    let worktreeBaseRef = baseBranch;
-                    if (repo.startFromOrigin) {
-                      yield* gitWorkflow.fetchRemote({
-                        cwd: repo.projectCwd,
-                        remoteName: "origin",
-                      });
-                      const resolvedRemoteBase = yield* gitWorkflow.resolveRemoteTrackingCommit({
-                        cwd: repo.projectCwd,
-                        refName: baseBranch,
-                        fallbackRemoteName: "origin",
-                      });
-                      worktreeBaseRef = resolvedRemoteBase.commitSha;
-                    }
-                    const repoWorktree = yield* gitWorkflow.createWorktree({
-                      cwd: repo.projectCwd,
-                      refName: worktreeBaseRef,
-                      newRefName: prepare.branch,
-                      baseRefName: baseBranch,
-                      path: `${workspaceThreadRoot}/${repo.label}`,
-                    });
-                    yield* refreshGitStatus(repoWorktree.worktree.path);
-                    return {
-                      label: repo.label,
-                      projectId: repo.projectId,
-                      sourceRepoRoot: repo.projectCwd,
-                      repoWorktreePath: repoWorktree.worktree.path,
-                      branch: prepare.branch,
-                      baseBranch,
-                      deployOrder: repo.deployOrder,
-                    };
-                  }),
-                { concurrency: 1 },
-              );
+              // Provision each member resiliently: a member with a bad label,
+              // too-long path, or no commits (empty repo) is skipped with a
+              // recorded warning instead of aborting the whole workspace.
+              const provisioned = yield* provisionWorkspaceWorktrees({
+                workspaceThreadRoot,
+                branch: prepare.branch,
+                repos: prepare.repos,
+                deps: {
+                  fetchRemote: gitWorkflow.fetchRemote,
+                  resolveRemoteTrackingCommit: gitWorkflow.resolveRemoteTrackingCommit,
+                  createWorktree: gitWorkflow.createWorktree,
+                  refreshGitStatus,
+                  onRepoSkipped: (skip) =>
+                    appendWorkspaceProvisionWarning({
+                      threadId: command.threadId,
+                      label: skip.label,
+                      baseBranch: skip.baseBranch,
+                      ...(skip.issue ? { issue: skip.issue } : {}),
+                      ...(skip.cause ? { cause: skip.cause } : {}),
+                    }),
+                },
+              });
 
               targetWorktreePath = workspaceThreadRoot;
               yield* orchestrationEngine.dispatch({

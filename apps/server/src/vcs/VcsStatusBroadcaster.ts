@@ -30,6 +30,20 @@ const VCS_STATUS_REFRESH_FAILURE_MAX_DELAY = Duration.minutes(15);
 const MAX_FAILURE_DIAGNOSTIC_VALUES = 8;
 const MAX_FAILURE_DIAGNOSTIC_VALUE_LENGTH = 128;
 
+// M6 #3581: a workspace thread opens N per-repo remote pollers at once, each
+// firing a `gh` PR lookup on start and every interval - a thundering herd that
+// can trip rate limits. Offset each newly-created poller's FIRST remote fetch by
+// a deterministic step derived from how many pollers already exist, wrapping so
+// the window stays bounded. Ordinal 0 keeps the single-repo/first-repo case at
+// zero delay; between polls the badge is served from the PR lookup cache.
+const REMOTE_POLL_STAGGER_STEP = Duration.seconds(1);
+const REMOTE_POLL_STAGGER_MAX_SLOTS = 8;
+
+export function remotePollStartupStagger(ordinal: number): Duration.Duration {
+  const bounded = Math.max(0, Math.trunc(ordinal));
+  return Duration.times(REMOTE_POLL_STAGGER_STEP, bounded % REMOTE_POLL_STAGGER_MAX_SLOTS);
+}
+
 function boundedDiagnosticValue(value: string): string {
   return value.slice(0, MAX_FAILURE_DIAGNOSTIC_VALUE_LENGTH);
 }
@@ -380,6 +394,7 @@ export const make = Effect.gen(function* () {
     cwd: string,
     automaticRemoteRefreshInterval: Effect.Effect<Duration.Duration, never>,
     refreshImmediately: boolean,
+    startupStagger: Duration.Duration,
   ) => {
     return Effect.gen(function* () {
       const consecutiveFailuresRef = yield* Ref.make(0);
@@ -422,6 +437,13 @@ export const make = Effect.gen(function* () {
         return nextDelay;
       });
 
+      // Spread the initial N-repo burst so co-started pollers don't all hit the
+      // remote at once. The local status snapshot is emitted immediately by
+      // streamStatus regardless, so only the PR-badge fill-in is delayed.
+      if (Duration.isGreaterThan(startupStagger, Duration.zero)) {
+        yield* Effect.sleep(startupStagger);
+      }
+
       if (!refreshImmediately) {
         const configuredInterval = yield* automaticRemoteRefreshInterval;
         yield* Effect.sleep(
@@ -458,7 +480,14 @@ export const make = Effect.gen(function* () {
         return Effect.succeed([undefined, nextPollers] as const);
       }
 
-      return makeRemoteRefreshLoop(cwd, automaticRemoteRefreshInterval, refreshImmediately).pipe(
+      // Only NEW pollers get a stagger; the ordinal is the count of pollers that
+      // already exist, so re-subscribing to an already-polled cwd stays instant.
+      return makeRemoteRefreshLoop(
+        cwd,
+        automaticRemoteRefreshInterval,
+        refreshImmediately,
+        remotePollStartupStagger(activePollers.size),
+      ).pipe(
         Effect.forkIn(broadcasterScope),
         Effect.map((fiber) => {
           const nextPollers = new Map(activePollers);

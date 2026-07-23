@@ -4,6 +4,7 @@ import {
   isUncPath,
   isWindowsAbsolutePath,
   isWindowsDrivePath,
+  validateMemberWorktreePath,
 } from "./path.ts";
 
 describe("path helpers", () => {
@@ -30,5 +31,44 @@ describe("path helpers", () => {
     expect(isExplicitRelativePath("./repo")).toBe(true);
     expect(isExplicitRelativePath("..\\repo")).toBe(true);
     expect(isExplicitRelativePath("~/repo")).toBe(false);
+  });
+});
+
+describe("validateMemberWorktreePath", () => {
+  const root = "/home/u/.t3/worktrees/workspaces/thread-abc";
+
+  it("accepts a short safe label", () => {
+    expect(validateMemberWorktreePath({ label: "api", workspaceThreadRoot: root }).ok).toBe(true);
+  });
+
+  it("rejects an over-long label", () => {
+    expect(
+      validateMemberWorktreePath({ label: "x".repeat(33), workspaceThreadRoot: root }),
+    ).toMatchObject({ ok: false, issue: "label-too-long" });
+  });
+
+  it("rejects an empty label", () => {
+    expect(validateMemberWorktreePath({ label: "  ", workspaceThreadRoot: root }).issue).toBe(
+      "label-empty",
+    );
+  });
+
+  it("rejects a label with a path separator or traversal", () => {
+    expect(validateMemberWorktreePath({ label: "a/b", workspaceThreadRoot: root }).issue).toBe(
+      "label-unsafe",
+    );
+    expect(validateMemberWorktreePath({ label: "..", workspaceThreadRoot: root }).issue).toBe(
+      "label-unsafe",
+    );
+    expect(validateMemberWorktreePath({ label: "a\\b", workspaceThreadRoot: root }).issue).toBe(
+      "label-unsafe",
+    );
+  });
+
+  it("rejects when the total worktree path exceeds the ceiling", () => {
+    const deep = "/" + "d/".repeat(160);
+    expect(validateMemberWorktreePath({ label: "api", workspaceThreadRoot: deep }).issue).toBe(
+      "path-too-long",
+    );
   });
 });

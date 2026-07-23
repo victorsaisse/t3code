@@ -726,3 +726,19 @@ describe("VcsStatusBroadcaster", () => {
     }).pipe(Effect.provide(testLayer));
   });
 });
+
+describe("remotePollStartupStagger", () => {
+  it("offsets pollers deterministically and keeps the first poller instant", () => {
+    assert.equal(Duration.toMillis(VcsStatusBroadcaster.remotePollStartupStagger(0)), 0);
+    assert.equal(Duration.toMillis(VcsStatusBroadcaster.remotePollStartupStagger(1)), 1000);
+    assert.equal(Duration.toMillis(VcsStatusBroadcaster.remotePollStartupStagger(3)), 3000);
+  });
+
+  it("wraps the stagger window so the offset stays bounded", () => {
+    assert.equal(
+      Duration.toMillis(VcsStatusBroadcaster.remotePollStartupStagger(8)),
+      Duration.toMillis(VcsStatusBroadcaster.remotePollStartupStagger(0)),
+    );
+    assert.equal(Duration.toMillis(VcsStatusBroadcaster.remotePollStartupStagger(-5)), 0);
+  });
+});
