@@ -1425,6 +1425,12 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                 ],
               }
             : {}),
+          // Workspace thread (M4): member worktree dirs -> per-turn writableRoots;
+          // repos -> developerInstructions manifest.
+          ...(input.additionalDirectories && input.additionalDirectories.length > 0
+            ? { additionalDirectories: input.additionalDirectories }
+            : {}),
+          ...(input.repos && input.repos.length > 0 ? { repos: input.repos } : {}),
         };
         const sessionScope = yield* Scope.make("sequential");
         let sessionScopeTransferred = false;

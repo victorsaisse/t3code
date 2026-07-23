@@ -4,7 +4,7 @@ import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { describe } from "vite-plus/test";
-import { DEFAULT_MODEL, ThreadId } from "@t3tools/contracts";
+import { DEFAULT_MODEL, ProjectId, ThreadId } from "@t3tools/contracts";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexRpc from "effect-codex-app-server/rpc";
 
@@ -14,7 +14,9 @@ import {
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
 } from "../CodexDeveloperInstructions.ts";
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
+import { buildRepoManifestText } from "../RepoManifest.ts";
 import {
+  buildThreadStartParams,
   buildTurnStartParams,
   hasConfiguredMcpServer,
   isRecoverableThreadResumeError,
@@ -215,6 +217,72 @@ describe("buildTurnStartParams", () => {
         },
       ],
     });
+  });
+});
+
+describe("workspace multi-dir (M4)", () => {
+  const repos = [
+    { label: "api", path: "/tmp/ws/api", projectId: ProjectId.make("project-api") },
+    { label: "web", path: "/tmp/ws/web", projectId: ProjectId.make("project-web") },
+  ];
+
+  it("buildThreadStartParams injects the repo manifest as developerInstructions", () => {
+    const params = buildThreadStartParams({
+      cwd: "/tmp/ws",
+      runtimeMode: "auto-accept-edits",
+      model: undefined,
+      serviceTier: undefined,
+      repos,
+    });
+    NodeAssert.equal(params.developerInstructions, buildRepoManifestText(repos));
+  });
+
+  it("buildThreadStartParams omits developerInstructions when there are no repos", () => {
+    const params = buildThreadStartParams({
+      cwd: "/tmp/ws",
+      runtimeMode: "auto-accept-edits",
+      model: undefined,
+      serviceTier: undefined,
+    });
+    NodeAssert.equal(params.developerInstructions, undefined);
+  });
+
+  it("buildTurnStartParams grants writableRoots on the workspaceWrite sandbox", () => {
+    const params = Effect.runSync(
+      buildTurnStartParams({
+        threadId: "provider-thread-1",
+        runtimeMode: "auto-accept-edits",
+        prompt: "edit both",
+        writableRoots: ["/tmp/ws/api", "/tmp/ws/web"],
+      }),
+    );
+    NodeAssert.deepStrictEqual(params.sandboxPolicy, {
+      type: "workspaceWrite",
+      writableRoots: ["/tmp/ws/api", "/tmp/ws/web"],
+    });
+  });
+
+  it("buildTurnStartParams omits writableRoots when none are provided", () => {
+    const params = Effect.runSync(
+      buildTurnStartParams({
+        threadId: "provider-thread-1",
+        runtimeMode: "auto-accept-edits",
+        prompt: "edit",
+      }),
+    );
+    NodeAssert.deepStrictEqual(params.sandboxPolicy, { type: "workspaceWrite" });
+  });
+
+  it("buildTurnStartParams ignores writableRoots for a read-only (approval) turn", () => {
+    const params = Effect.runSync(
+      buildTurnStartParams({
+        threadId: "provider-thread-1",
+        runtimeMode: "approval-required",
+        prompt: "look",
+        writableRoots: ["/tmp/ws/api"],
+      }),
+    );
+    NodeAssert.deepStrictEqual(params.sandboxPolicy, { type: "readOnly" });
   });
 });
 

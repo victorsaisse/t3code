@@ -10,6 +10,7 @@ import {
   type ProviderInteractionMode,
   type ProviderRequestKind,
   type ProviderSession,
+  type ProviderSessionRepo,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
   RuntimeMode,
@@ -39,6 +40,7 @@ import { buildCodexInitializeParams } from "./CodexProvider.ts";
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import { buildCodexDeveloperInstructions } from "../CodexDeveloperInstructions.ts";
+import { buildRepoManifestText } from "../RepoManifest.ts";
 const decodeV2TurnStartResponse = Schema.decodeUnknownEffect(EffectCodexSchema.V2TurnStartResponse);
 
 const PROVIDER = ProviderDriverKind.make("codex");
@@ -106,6 +108,10 @@ export interface CodexSessionRuntimeOptions {
   readonly serviceTier?: CodexServiceTier | undefined;
   readonly resumeCursor?: CodexResumeCursor;
   readonly appServerArgs?: ReadonlyArray<string>;
+  // Workspace thread (M4): sibling member-repo worktree dirs granted to Codex
+  // as per-turn writableRoots, plus the repos manifest for developerInstructions.
+  readonly additionalDirectories?: ReadonlyArray<string>;
+  readonly repos?: ReadonlyArray<ProviderSessionRepo>;
 }
 
 export interface CodexSessionRuntimeSendTurnInput {
@@ -285,24 +291,31 @@ function runtimeModeToThreadConfig(input: RuntimeMode): {
   }
 }
 
-function buildThreadStartParams(input: {
+export function buildThreadStartParams(input: {
   readonly cwd: string;
   readonly runtimeMode: RuntimeMode;
   readonly model: string | undefined;
   readonly serviceTier: CodexServiceTier | undefined;
+  readonly repos?: ReadonlyArray<ProviderSessionRepo>;
 }): EffectCodexSchema.V2ThreadStartParams {
   const config = runtimeModeToThreadConfig(input.runtimeMode);
+  // Workspace thread (M4): Codex has no additionalDirectories, so the manifest
+  // describing the sibling member repos rides on developerInstructions.
+  const developerInstructions =
+    input.repos && input.repos.length > 0 ? buildRepoManifestText(input.repos) : undefined;
   return {
     cwd: input.cwd,
     approvalPolicy: config.approvalPolicy,
     sandbox: config.sandbox,
     ...(input.model ? { model: input.model } : {}),
     ...(input.serviceTier ? { serviceTier: input.serviceTier } : {}),
+    ...(developerInstructions ? { developerInstructions } : {}),
   };
 }
 
 function runtimeModeToTurnSandboxPolicy(
   input: RuntimeMode,
+  writableRoots?: ReadonlyArray<string>,
 ): EffectCodexSchema.V2TurnStartParams__SandboxPolicy {
   switch (input) {
     case "approval-required":
@@ -310,8 +323,11 @@ function runtimeModeToTurnSandboxPolicy(
         type: "readOnly",
       };
     case "auto-accept-edits":
+      // Grant the member worktree dirs write access (danger-full-access already
+      // writes everywhere). Absent/empty for single-repo threads.
       return {
         type: "workspaceWrite",
+        ...(writableRoots && writableRoots.length > 0 ? { writableRoots } : {}),
       };
     case "full-access":
     default:
@@ -356,6 +372,7 @@ export function buildTurnStartParams(input: {
   readonly serviceTier?: CodexServiceTier;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
   readonly interactionMode?: ProviderInteractionMode;
+  readonly writableRoots?: ReadonlyArray<string>;
 }): Effect.Effect<
   CodexTurnStartParamsWithCollaborationMode,
   CodexErrors.CodexAppServerProtocolParseError
@@ -382,7 +399,7 @@ export function buildTurnStartParams(input: {
     threadId: input.threadId,
     input: turnInput,
     approvalPolicy: config.approvalPolicy,
-    sandboxPolicy: runtimeModeToTurnSandboxPolicy(input.runtimeMode),
+    sandboxPolicy: runtimeModeToTurnSandboxPolicy(input.runtimeMode, input.writableRoots),
     ...(input.model ? { model: input.model } : {}),
     ...(input.serviceTier ? { serviceTier: input.serviceTier } : {}),
     ...(input.effort ? { effort: input.effort } : {}),
@@ -447,6 +464,7 @@ export const openCodexThread = (input: {
   readonly requestedModel: string | undefined;
   readonly serviceTier: CodexServiceTier | undefined;
   readonly resumeThreadId: string | undefined;
+  readonly repos?: ReadonlyArray<ProviderSessionRepo>;
 }): Effect.Effect<CodexThreadOpenResponse, CodexErrors.CodexAppServerError> => {
   const resumeThreadId = input.resumeThreadId;
   const startParams = buildThreadStartParams({
@@ -454,6 +472,7 @@ export const openCodexThread = (input: {
     runtimeMode: input.runtimeMode,
     model: input.requestedModel,
     serviceTier: input.serviceTier,
+    ...(input.repos ? { repos: input.repos } : {}),
   });
 
   if (resumeThreadId === undefined) {
@@ -775,6 +794,12 @@ export const makeCodexSessionRuntime = (
       ...(options.model ? { model: options.model } : {}),
       threadId: options.threadId,
       ...(options.resumeCursor !== undefined ? { resumeCursor: options.resumeCursor } : {}),
+      // Round-trip the workspace attach set so the reactor's attachedSetChanged
+      // restart trigger works for Codex workspace threads too.
+      ...(options.additionalDirectories && options.additionalDirectories.length > 0
+        ? { additionalDirectories: options.additionalDirectories }
+        : {}),
+      ...(options.repos && options.repos.length > 0 ? { repos: options.repos } : {}),
       createdAt: sessionCreatedAt,
       updatedAt: sessionCreatedAt,
     } satisfies ProviderSession;
@@ -1212,6 +1237,7 @@ export const makeCodexSessionRuntime = (
         requestedModel,
         serviceTier: options.serviceTier,
         resumeThreadId: readResumeCursorThreadId(options.resumeCursor),
+        ...(options.repos ? { repos: options.repos } : {}),
       });
 
       const providerThreadId = opened.thread.id;
@@ -1286,6 +1312,9 @@ export const makeCodexSessionRuntime = (
             ...(input.serviceTier ? { serviceTier: input.serviceTier } : {}),
             ...(input.effort ? { effort: input.effort } : {}),
             ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
+            ...(options.additionalDirectories && options.additionalDirectories.length > 0
+              ? { writableRoots: options.additionalDirectories }
+              : {}),
           });
           const rawResponse = yield* client.raw.request("turn/start", params);
           const response = yield* decodeV2TurnStartResponse(rawResponse).pipe(
