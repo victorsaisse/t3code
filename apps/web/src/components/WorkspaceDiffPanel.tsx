@@ -1,11 +1,17 @@
+import { useAtomValue } from "@effect/atom-react";
 import { useParams } from "@tanstack/react-router";
 import {
   isAtomCommandInterrupted,
   runAtomCommand,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, ScopedThreadRef, WorkspaceWorktree } from "@t3tools/contracts";
-import { BoxesIcon, PilcrowIcon, UploadCloudIcon } from "lucide-react";
+import type {
+  EnvironmentId,
+  ScopedThreadRef,
+  WorkspaceMergeMethod,
+  WorkspaceWorktree,
+} from "@t3tools/contracts";
+import { BoxesIcon, GitMergeIcon, PilcrowIcon, UploadCloudIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { type DraftId } from "../composerDraftStore";
@@ -31,13 +37,15 @@ import { appAtomRegistry } from "../rpc/atomRegistry";
 import { cn, randomUUID } from "~/lib/utils";
 import { useThread } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
+import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { reviewEnvironment } from "../state/review";
-import { vcsActionManager, vcsEnvironment } from "../state/vcs";
+import { vcsActionManager, vcsEnvironment, workspaceMergeManager } from "../state/vcs";
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { AnnotatableCodeView } from "./diffs/AnnotatableCodeView";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { Button } from "./ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Toggle } from "./ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -59,13 +67,23 @@ interface WorkspaceDiffPanelProps {
  * worktree and stacks the results, giving "all workspace changes, separated
  * by repo, all in one place".
  */
+const MERGE_STATUS_LABEL: Record<string, string> = {
+  pending: "Merging…",
+  merged: "Merged",
+  deploying: "Deploying…",
+  deployed: "Deployed",
+  skipped: "Skipped",
+  failed: "Failed",
+};
+
 function WorkspaceRepoDiffSection(props: {
   environmentId: EnvironmentId;
   worktree: WorkspaceWorktree;
   composerDraftTarget: ScopedThreadRefOrDraft;
   ignoreWhitespace: boolean;
+  mergeStatus?: string;
 }) {
-  const { environmentId, worktree, composerDraftTarget, ignoreWhitespace } = props;
+  const { environmentId, worktree, composerDraftTarget, ignoreWhitespace, mergeStatus } = props;
   const { resolvedTheme } = useTheme();
 
   const diffQuery = useEnvironmentQuery(
@@ -133,6 +151,20 @@ function WorkspaceRepoDiffSection(props: {
         <span className="truncate font-mono text-[10px] text-muted-foreground/55">
           {worktree.branch}
         </span>
+        {mergeStatus ? (
+          <span
+            className={cn(
+              "shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium",
+              mergeStatus === "failed"
+                ? "bg-destructive/15 text-destructive"
+                : mergeStatus === "merged" || mergeStatus === "deployed"
+                  ? "bg-success/15 text-success"
+                  : "bg-accent/60 text-muted-foreground",
+            )}
+          >
+            {MERGE_STATUS_LABEL[mergeStatus] ?? mergeStatus}
+          </span>
+        ) : null}
         <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60">
           {fileCount === 0 ? "No changes" : `${fileCount} ${fileCount === 1 ? "file" : "files"}`}
         </span>
@@ -192,6 +224,7 @@ export default function WorkspaceDiffPanel({
   );
 
   const environmentId = activeThread?.environmentId ?? null;
+  const activeThreadId = activeThread?.id ?? null;
   const [isShipping, setIsShipping] = useState(false);
   // Fetch fresh per-cwd status imperatively (mounts+fetches) for the no-change
   // filter - a hook per worktree would violate the rules-of-hooks.
@@ -199,6 +232,27 @@ export default function WorkspaceDiffPanel({
   const threadToastData = useMemo(
     () => (routeThreadRef ? { threadRef: routeThreadRef } : undefined),
     [routeThreadRef],
+  );
+
+  // Ordered merge/deploy (M5): fold streamed per-repo progress into a badge per
+  // repo section, and offer a merge-method menu on the header.
+  const runMerge = useAtomCommand(workspaceMergeManager.mergeWorkspace, { reportFailure: false });
+  const mergeState = useAtomValue(workspaceMergeManager.stateAtom(activeThreadId ?? "none"));
+  const mergeStatusByLabel = useMemo(() => {
+    const map = new Map<string, (typeof mergeState.repos)[number]["status"]>();
+    for (const repo of mergeState.repos) {
+      map.set(repo.label, repo.status);
+    }
+    return map;
+  }, [mergeState.repos]);
+  const mergeWorkspace = useCallback(
+    (mergeMethod: WorkspaceMergeMethod) => {
+      if (activeThreadId === null || environmentId === null || mergeState.isRunning) {
+        return;
+      }
+      void runMerge({ environmentId, threadId: activeThreadId, mergeMethod, deleteBranch: true });
+    },
+    [activeThreadId, environmentId, mergeState.isRunning, runMerge],
   );
 
   // Ship one PR per CHANGED member repo on the shared branch. Each worktree is
@@ -342,6 +396,27 @@ export default function WorkspaceDiffPanel({
           <UploadCloudIcon className="size-3.5" aria-hidden />
           <span className="ml-0.5">{isShipping ? "Shipping..." : "Ship all repos"}</span>
         </Button>
+        <Menu>
+          <MenuTrigger
+            render={
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={orderedWorktrees.length === 0 || mergeState.isRunning}
+              />
+            }
+          >
+            <GitMergeIcon className="size-3.5" aria-hidden />
+            <span className="ml-0.5">
+              {mergeState.isRunning ? "Merging..." : "Merge workspace"}
+            </span>
+          </MenuTrigger>
+          <MenuPopup align="end" className="w-52">
+            <MenuItem onClick={() => mergeWorkspace("squash")}>Squash merge each PR</MenuItem>
+            <MenuItem onClick={() => mergeWorkspace("merge")}>Merge commit each PR</MenuItem>
+            <MenuItem onClick={() => mergeWorkspace("rebase")}>Rebase merge each PR</MenuItem>
+          </MenuPopup>
+        </Menu>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -378,15 +453,19 @@ export default function WorkspaceDiffPanel({
         </div>
       ) : (
         <div className={cn("flex min-h-0 flex-1 flex-col overflow-auto")}>
-          {orderedWorktrees.map((worktree) => (
-            <WorkspaceRepoDiffSection
-              key={worktree.repoWorktreePath}
-              environmentId={activeThread.environmentId}
-              worktree={worktree}
-              composerDraftTarget={composerDraftTarget}
-              ignoreWhitespace={diffIgnoreWhitespace}
-            />
-          ))}
+          {orderedWorktrees.map((worktree) => {
+            const status = mergeStatusByLabel.get(worktree.label);
+            return (
+              <WorkspaceRepoDiffSection
+                key={worktree.repoWorktreePath}
+                environmentId={activeThread.environmentId}
+                worktree={worktree}
+                composerDraftTarget={composerDraftTarget}
+                ignoreWhitespace={diffIgnoreWhitespace}
+                {...(status ? { mergeStatus: status } : {})}
+              />
+            );
+          })}
         </div>
       )}
     </DiffPanelShell>

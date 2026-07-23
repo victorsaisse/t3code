@@ -38,6 +38,8 @@ import {
   VcsStatusInput,
   VcsStatusResult,
   VcsStatusStreamEvent,
+  WorkspaceMergeChangeRequestsInput,
+  WorkspaceMergeProgressEvent,
 } from "./git.ts";
 import {
   ReviewDiffPreviewError,
@@ -175,6 +177,7 @@ export const WS_METHODS = {
   gitRunStackedAction: "git.runStackedAction",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
+  workspaceMergeChangeRequests: "workspace.mergeChangeRequests",
 
   // Review methods
   reviewGetDiffPreview: "review.getDiffPreview",
@@ -438,6 +441,13 @@ export const WsGitPreparePullRequestThreadRpc = Rpc.make(WS_METHODS.gitPreparePu
   payload: GitPreparePullRequestThreadInput,
   success: GitPreparePullRequestThreadResult,
   error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+});
+
+export const WsWorkspaceMergeChangeRequestsRpc = Rpc.make(WS_METHODS.workspaceMergeChangeRequests, {
+  payload: WorkspaceMergeChangeRequestsInput,
+  success: WorkspaceMergeProgressEvent,
+  error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+  stream: true,
 });
 
 export const WsVcsListRefsRpc = Rpc.make(WS_METHODS.vcsListRefs, {
@@ -720,6 +730,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
+  WsWorkspaceMergeChangeRequestsRpc,
   WsVcsListRefsRpc,
   WsVcsCreateWorktreeRpc,
   WsVcsRemoveWorktreeRpc,

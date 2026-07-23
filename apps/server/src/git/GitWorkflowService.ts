@@ -22,6 +22,8 @@ import {
   type GitResolvePullRequestResult,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
+  type GitMergeChangeRequestResult,
+  type WorkspaceMergeMethod,
   type VcsStatusInput,
   type VcsStatusLocalResult,
   type VcsStatusRemoteResult,
@@ -59,6 +61,12 @@ export class GitWorkflowService extends Context.Service<
     readonly preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
+    readonly mergeChangeRequest: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+      readonly mergeMethod: WorkspaceMergeMethod;
+      readonly deleteBranch?: boolean;
+    }) => Effect.Effect<GitMergeChangeRequestResult, GitManagerServiceError>;
     readonly listRefs: (
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
@@ -288,6 +296,10 @@ export const make = Effect.gen(function* () {
     preparePullRequestThread: routeGitManager(
       "GitWorkflowService.preparePullRequestThread",
       gitManager.preparePullRequestThread,
+    ),
+    mergeChangeRequest: routeGitManager(
+      "GitWorkflowService.mergeChangeRequest",
+      gitManager.mergeChangeRequest,
     ),
     listRefs: (input) =>
       detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(

@@ -51,6 +51,7 @@ import type { GitManagerServiceError } from "@t3tools/contracts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import type { ChangeRequest } from "@t3tools/contracts";
+import type { GitMergeChangeRequestResult, WorkspaceMergeMethod } from "@t3tools/contracts";
 
 export interface GitActionProgressReporter {
   readonly publish: (event: GitActionProgressEvent) => Effect.Effect<void, never>;
@@ -87,6 +88,15 @@ export class GitManager extends Context.Service<
       input: GitRunStackedActionInput,
       options?: GitRunStackedActionOptions,
     ) => Effect.Effect<GitRunStackedActionResult, GitManagerServiceError>;
+    // Merge ONE change request for a branch/reference. Idempotent: reports the
+    // already-merged / no-PR cases instead of erroring, so an ordered workspace
+    // merge can resume by re-invoking after a partial failure.
+    readonly mergeChangeRequest: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+      readonly mergeMethod: WorkspaceMergeMethod;
+      readonly deleteBranch?: boolean;
+    }) => Effect.Effect<GitMergeChangeRequestResult, GitManagerServiceError>;
   }
 >()("t3/git/GitManager") {}
 
@@ -1610,6 +1620,42 @@ export const make = Effect.gen(function* () {
     return { pullRequest };
   });
 
+  const mergeChangeRequest: GitManager["Service"]["mergeChangeRequest"] = Effect.fn(
+    "mergeChangeRequest",
+  )(function* (input) {
+    const provider = yield* sourceControlProvider(input.cwd);
+    // Look at all PRs for this head so a re-invocation after a partial failure
+    // can tell "already merged" (skip) from "still open" (merge) from "never had
+    // a PR" (skip) - the idempotent, resumable contract.
+    const changeRequests = yield* provider.listChangeRequests({
+      cwd: input.cwd,
+      headSelector: input.reference,
+      state: "all",
+      limit: 20,
+    });
+    const openChangeRequest = changeRequests.find((request) => request.state === "open");
+    if (!openChangeRequest) {
+      const merged = changeRequests.find((request) => request.state === "merged");
+      return {
+        status: merged
+          ? ("skipped_already_merged" as const)
+          : ("skipped_no_change_request" as const),
+        ...(merged ? { prNumber: merged.number, prUrl: merged.url } : {}),
+      } satisfies GitMergeChangeRequestResult;
+    }
+    yield* provider.mergeChangeRequest({
+      cwd: input.cwd,
+      reference: String(openChangeRequest.number),
+      mergeMethod: input.mergeMethod,
+      ...(input.deleteBranch !== undefined ? { deleteBranch: input.deleteBranch } : {}),
+    });
+    return {
+      status: "merged" as const,
+      prNumber: openChangeRequest.number,
+      prUrl: openChangeRequest.url,
+    } satisfies GitMergeChangeRequestResult;
+  });
+
   const preparePullRequestThread: GitManager["Service"]["preparePullRequestThread"] = Effect.fn(
     "preparePullRequestThread",
   )(function* (input) {
@@ -2023,6 +2069,7 @@ export const make = Effect.gen(function* () {
     resolvePullRequest,
     preparePullRequestThread,
     runStackedAction,
+    mergeChangeRequest,
   });
 });
 

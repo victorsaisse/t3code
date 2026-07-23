@@ -230,6 +230,30 @@ export const make = Effect.gen(function* () {
               }),
           ),
         ),
+    mergeChangeRequest: (input) =>
+      github
+        .mergePullRequest({
+          cwd: input.cwd,
+          reference: input.reference,
+          mergeMethod: input.mergeMethod,
+          ...(input.deleteBranch !== undefined ? { deleteBranch: input.deleteBranch } : {}),
+        })
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new SourceControlProviderError({
+                provider: "github",
+                operation: "mergeChangeRequest",
+                command: error.command,
+                cwd: input.cwd,
+                reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                  input.reference,
+                ),
+                detail: error.detail,
+                cause: error,
+              }),
+          ),
+        ),
     getRepositoryCloneUrls: (input) =>
       github.getRepositoryCloneUrls(input).pipe(
         Effect.mapError(

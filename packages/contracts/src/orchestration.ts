@@ -197,6 +197,12 @@ export const ProjectScript = Schema.Struct({
   icon: ProjectScriptIcon,
   runOnWorktreeCreate: Schema.Boolean,
   /**
+   * When true, this script is the repo's per-repo deploy command, run after
+   * that repo merges during an ordered workspace deploy (M5). Additive-optional
+   * so existing persisted projects/events decode unchanged.
+   */
+  runOnDeploy: Schema.optional(Schema.Boolean),
+  /**
    * URL to open in the in-app browser preview when this script runs (or
    * when the user explicitly requests a preview). Optional; only honored on
    * the desktop build.

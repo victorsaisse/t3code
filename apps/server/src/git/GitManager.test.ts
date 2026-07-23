@@ -555,6 +555,21 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
             input.bodyFile,
           ],
         }).pipe(Effect.asVoid),
+      mergePullRequest: (input) =>
+        execute({
+          cwd: input.cwd,
+          args: [
+            "pr",
+            "merge",
+            input.reference,
+            input.mergeMethod === "squash"
+              ? "--squash"
+              : input.mergeMethod === "rebase"
+                ? "--rebase"
+                : "--merge",
+            ...(input.deleteBranch ? ["--delete-branch"] : []),
+          ],
+        }).pipe(Effect.asVoid),
       getDefaultBranch: (input) =>
         execute({
           cwd: input.cwd,
@@ -675,6 +690,7 @@ function makeManager(input?: {
       ProjectSetupScriptRunner.ProjectSetupScriptRunner,
       input?.setupScriptRunner ?? {
         runForThread: () => Effect.succeed({ status: "no-script" as const }),
+        runDeployForThread: () => Effect.succeed({ status: "no-script" as const }),
       },
     ),
     vcsDriverLayer,
@@ -3053,6 +3069,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               setupCalls.push(setupInput);
               return { status: "no-script" as const };
             }),
+          runDeployForThread: () => Effect.succeed({ status: "no-script" as const }),
         },
       });
 
@@ -3279,6 +3296,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
               setupCalls.push(setupInput);
               return { status: "no-script" as const };
             }),
+          runDeployForThread: () => Effect.succeed({ status: "no-script" as const }),
         },
       });
 
@@ -3513,6 +3531,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 cause: new Error("terminal start failed"),
               }),
             ),
+          runDeployForThread: () => Effect.succeed({ status: "no-script" as const }),
         },
       });
 

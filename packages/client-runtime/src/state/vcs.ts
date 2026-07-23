@@ -225,3 +225,4 @@ export * from "./gitActions.ts";
 export * from "./vcsAction.ts";
 export * from "./vcsRef.ts";
 export * from "./vcsStatus.ts";
+export * from "./workspaceMerge.ts";

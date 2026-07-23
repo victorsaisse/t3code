@@ -8,6 +8,7 @@ import type {
   SourceControlProviderKind,
   SourceControlRepositoryCloneUrls,
   SourceControlRepositoryVisibility,
+  WorkspaceMergeMethod,
 } from "@t3tools/contracts";
 
 export interface SourceControlProviderContext {
@@ -120,6 +121,14 @@ export class SourceControlProvider extends Context.Service<
       readonly cwd: string;
       readonly context?: SourceControlProviderContext;
     }) => Effect.Effect<string | null, SourceControlProviderError>;
+    readonly mergeChangeRequest: (input: {
+      readonly cwd: string;
+      readonly context?: SourceControlProviderContext;
+      // A PR number, URL, or head branch name that identifies the change request.
+      readonly reference: string;
+      readonly mergeMethod: WorkspaceMergeMethod;
+      readonly deleteBranch?: boolean;
+    }) => Effect.Effect<void, SourceControlProviderError>;
     readonly checkoutChangeRequest: (input: {
       readonly cwd: string;
       readonly context?: SourceControlProviderContext;

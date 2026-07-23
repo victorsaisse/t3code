@@ -159,6 +159,14 @@ export const make = Effect.gen(function* () {
               }),
           ),
         ),
+    mergeChangeRequest: (input) =>
+      new SourceControlProviderError({
+        provider: "bitbucket",
+        operation: "mergeChangeRequest",
+        cwd: input.cwd,
+        reference: SourceControlProvider.transportSafeSourceControlErrorValue(input.reference),
+        detail: "Ordered workspace merge is not yet supported for Bitbucket.",
+      }),
     checkoutChangeRequest: (input) =>
       bitbucket
         .checkoutPullRequest({

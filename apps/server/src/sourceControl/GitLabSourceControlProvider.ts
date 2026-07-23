@@ -228,6 +228,14 @@ export const make = Effect.gen(function* () {
             }),
         ),
       ),
+    mergeChangeRequest: (input) =>
+      new SourceControlProviderError({
+        provider: "gitlab",
+        operation: "mergeChangeRequest",
+        cwd: input.cwd,
+        reference: SourceControlProvider.transportSafeSourceControlErrorValue(input.reference),
+        detail: "Ordered workspace merge is not yet supported for GitLab.",
+      }),
     checkoutChangeRequest: (input) =>
       gitlab.checkoutMergeRequest(input).pipe(
         Effect.mapError(

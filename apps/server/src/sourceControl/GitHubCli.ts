@@ -9,6 +9,7 @@ import {
   TrimmedNonEmptyString,
   type SourceControlRepositoryVisibility,
   type VcsError,
+  type WorkspaceMergeMethod,
 } from "@t3tools/contracts";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
@@ -235,6 +236,13 @@ export class GitHubCli extends Context.Service<
       readonly bodyFile: string;
     }) => Effect.Effect<void, GitHubCliError>;
 
+    readonly mergePullRequest: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+      readonly mergeMethod: WorkspaceMergeMethod;
+      readonly deleteBranch?: boolean;
+    }) => Effect.Effect<void, GitHubCliError>;
+
     readonly getDefaultBranch: (input: {
       readonly cwd: string;
     }) => Effect.Effect<string | null, GitHubCliError>;
@@ -419,6 +427,25 @@ export const make = Effect.gen(function* () {
           deriveRepositoryCloneUrlsFromCreateOutput(result.stdout, input.repository),
         ),
       ),
+    mergePullRequest: (input) => {
+      const methodFlag =
+        input.mergeMethod === "squash"
+          ? "--squash"
+          : input.mergeMethod === "rebase"
+            ? "--rebase"
+            : "--merge";
+      // `gh pr merge` accepts a PR number, URL, or branch as <reference>.
+      return execute({
+        cwd: input.cwd,
+        args: [
+          "pr",
+          "merge",
+          input.reference,
+          methodFlag,
+          ...(input.deleteBranch ? ["--delete-branch"] : []),
+        ],
+      }).pipe(Effect.asVoid);
+    },
     createPullRequest: (input) =>
       execute({
         cwd: input.cwd,

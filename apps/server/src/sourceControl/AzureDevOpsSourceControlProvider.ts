@@ -200,6 +200,14 @@ export const make = Effect.gen(function* () {
             }),
         ),
       ),
+    mergeChangeRequest: (input) =>
+      new SourceControlProviderError({
+        provider: "azure-devops",
+        operation: "mergeChangeRequest",
+        cwd: input.cwd,
+        reference: SourceControlProvider.transportSafeSourceControlErrorValue(input.reference),
+        detail: "Ordered workspace merge is not yet supported for Azure DevOps.",
+      }),
     checkoutChangeRequest: (input) =>
       azure
         .checkoutPullRequest({

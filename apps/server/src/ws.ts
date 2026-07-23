@@ -27,7 +27,9 @@ import {
   EventId,
   type OrchestrationCommand,
   type GitActionProgressEvent,
+  GitManagerError,
   type GitManagerServiceError,
+  type WorkspaceMergeProgressEvent,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   type OrchestrationShellStreamEvent,
@@ -94,6 +96,7 @@ import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import * as WorkspaceMergeOrchestrator from "./git/WorkspaceMergeOrchestrator.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
@@ -325,6 +328,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.gitRunStackedAction, AuthOrchestrationOperateScope],
   [WS_METHODS.gitResolvePullRequest, AuthOrchestrationOperateScope],
   [WS_METHODS.gitPreparePullRequestThread, AuthOrchestrationOperateScope],
+  [WS_METHODS.workspaceMergeChangeRequests, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsListRefs, AuthOrchestrationReadScope],
   [WS_METHODS.vcsCreateWorktree, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsRemoveWorktree, AuthOrchestrationOperateScope],
@@ -1898,6 +1902,75 @@ const makeWsRpcLayer = (
                 ),
             ),
             { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.workspaceMergeChangeRequests]: (input) =>
+          observeRpcStream(
+            WS_METHODS.workspaceMergeChangeRequests,
+            Stream.callback<WorkspaceMergeProgressEvent, GitManagerServiceError>((queue) => {
+              const program = Effect.gen(function* () {
+                const threadOption = yield* projectionSnapshotQuery
+                  .getThreadDetailById(input.threadId)
+                  .pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new GitManagerError({
+                          operation: "workspaceMergeChangeRequests",
+                          cwd: input.threadId,
+                          detail: "Failed to load workspace thread.",
+                          cause,
+                        }),
+                    ),
+                  );
+                if (Option.isNone(threadOption)) {
+                  return yield* new GitManagerError({
+                    operation: "workspaceMergeChangeRequests",
+                    cwd: input.threadId,
+                    detail: "Workspace thread not found.",
+                  });
+                }
+                const worktrees = threadOption.value.worktrees;
+                // Only ever merge/refresh the per-repo worktrees; the shared root
+                // is not a git repo.
+                yield* WorkspaceMergeOrchestrator.runOrderedMerge(worktrees, {
+                  mergeRepo: (worktree) =>
+                    gitWorkflow.mergeChangeRequest({
+                      cwd: worktree.repoWorktreePath,
+                      reference: worktree.branch,
+                      mergeMethod: input.mergeMethod,
+                      ...(input.deleteBranch !== undefined
+                        ? { deleteBranch: input.deleteBranch }
+                        : {}),
+                    }),
+                  ...(input.deploy
+                    ? {
+                        deployRepo: (worktree) =>
+                          projectSetupScriptRunner
+                            .runDeployForThread({
+                              threadId: input.threadId,
+                              projectId: worktree.projectId,
+                              projectCwd: worktree.sourceRepoRoot,
+                              worktreePath: worktree.repoWorktreePath,
+                            })
+                            .pipe(Effect.asVoid),
+                      }
+                    : {}),
+                  emit: (event) => Queue.offer(queue, event).pipe(Effect.asVoid),
+                });
+                return worktrees;
+              });
+              return program.pipe(
+                Effect.matchCauseEffect({
+                  onFailure: (cause) => Queue.failCause(queue, cause),
+                  onSuccess: (worktrees) =>
+                    Effect.forEach(
+                      worktrees,
+                      (worktree) => refreshGitStatus(worktree.repoWorktreePath),
+                      { discard: true },
+                    ).pipe(Effect.andThen(Queue.end(queue).pipe(Effect.asVoid))),
+                }),
+              );
+            }),
+            { "rpc.aggregate": "workspace" },
           ),
         [WS_METHODS.gitResolvePullRequest]: (input) =>
           observeRpcEffect(

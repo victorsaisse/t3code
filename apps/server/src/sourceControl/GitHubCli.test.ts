@@ -373,4 +373,54 @@ describe("GitHubCli.layer", () => {
       assert.equal(error.message.includes(cause.detail), false);
     }).pipe(Effect.provide(layer)),
   );
+
+  it.effect("merges a PR with squash + delete-branch flags", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("")));
+      const gh = yield* GitHubCli.GitHubCli;
+      yield* gh.mergePullRequest({
+        cwd: "/repo",
+        reference: "42",
+        mergeMethod: "squash",
+        deleteBranch: true,
+      });
+      expect(mockRun).toHaveBeenCalledWith({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: ["pr", "merge", "42", "--squash", "--delete-branch"],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("merges a PR with a merge commit and no branch deletion", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("")));
+      const gh = yield* GitHubCli.GitHubCli;
+      yield* gh.mergePullRequest({ cwd: "/repo", reference: "7", mergeMethod: "merge" });
+      expect(mockRun).toHaveBeenCalledWith({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: ["pr", "merge", "7", "--merge"],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("merges a PR with the rebase flag", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("")));
+      const gh = yield* GitHubCli.GitHubCli;
+      yield* gh.mergePullRequest({ cwd: "/repo", reference: "9", mergeMethod: "rebase" });
+      expect(mockRun).toHaveBeenCalledWith({
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: ["pr", "merge", "9", "--rebase"],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
 });

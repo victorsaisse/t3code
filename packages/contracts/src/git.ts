@@ -448,3 +448,71 @@ export const GitActionProgressEvent = Schema.Union([
   GitActionFailedEvent,
 ]);
 export type GitActionProgressEvent = typeof GitActionProgressEvent.Type;
+
+// ---- Workspace ordered merge / deploy (M5) ----
+
+export const WorkspaceMergeMethod = Schema.Literals(["merge", "squash", "rebase"]);
+export type WorkspaceMergeMethod = typeof WorkspaceMergeMethod.Type;
+
+// Single-PR merge result surfaced by GitManager.mergeChangeRequest. Idempotent:
+// a re-invoked merge reports the already-merged / no-PR cases instead of erroring.
+export const GitMergeChangeRequestStatus = Schema.Literals([
+  "merged",
+  "skipped_already_merged",
+  "skipped_no_change_request",
+]);
+export type GitMergeChangeRequestStatus = typeof GitMergeChangeRequestStatus.Type;
+
+export const GitMergeChangeRequestResult = Schema.Struct({
+  status: GitMergeChangeRequestStatus,
+  prNumber: Schema.optional(PositiveInt),
+  prUrl: Schema.optional(Schema.String),
+});
+export type GitMergeChangeRequestResult = typeof GitMergeChangeRequestResult.Type;
+
+// Streaming merge RPC input: the handler reads thread.worktrees server-side and
+// walks them in deployOrder.
+export const WorkspaceMergeChangeRequestsInput = Schema.Struct({
+  threadId: ThreadId,
+  mergeMethod: WorkspaceMergeMethod,
+  deleteBranch: Schema.optional(Schema.Boolean),
+  deploy: Schema.optional(Schema.Boolean),
+});
+export type WorkspaceMergeChangeRequestsInput = typeof WorkspaceMergeChangeRequestsInput.Type;
+
+const WorkspaceMergeRepoBase = {
+  label: TrimmedNonEmptyStringSchema,
+  deployOrder: NonNegativeInt,
+} as const;
+export const WorkspaceMergeSkipReason = Schema.Literals(["already-merged", "no-change-request"]);
+export type WorkspaceMergeSkipReason = typeof WorkspaceMergeSkipReason.Type;
+export const WorkspaceMergeFailurePhase = Schema.Literals(["merge", "deploy"]);
+export type WorkspaceMergeFailurePhase = typeof WorkspaceMergeFailurePhase.Type;
+
+// Per-repo progress; a repo failure is a STREAM ITEM (repo_failed), not a stream
+// error, so the client can show which repo failed and re-invoke to resume.
+export const WorkspaceMergeProgressEvent = Schema.Union([
+  Schema.TaggedStruct("repo_started", { ...WorkspaceMergeRepoBase }),
+  Schema.TaggedStruct("repo_merged", {
+    ...WorkspaceMergeRepoBase,
+    prNumber: Schema.optional(PositiveInt),
+    prUrl: Schema.optional(Schema.String),
+  }),
+  Schema.TaggedStruct("repo_deploying", { ...WorkspaceMergeRepoBase }),
+  Schema.TaggedStruct("repo_deployed", { ...WorkspaceMergeRepoBase }),
+  Schema.TaggedStruct("repo_skipped", {
+    ...WorkspaceMergeRepoBase,
+    reason: WorkspaceMergeSkipReason,
+  }),
+  Schema.TaggedStruct("repo_failed", {
+    ...WorkspaceMergeRepoBase,
+    phase: WorkspaceMergeFailurePhase,
+    message: TrimmedNonEmptyStringSchema,
+  }),
+  Schema.TaggedStruct("completed", {
+    mergedCount: NonNegativeInt,
+    skippedCount: NonNegativeInt,
+    failedCount: NonNegativeInt,
+  }),
+]);
+export type WorkspaceMergeProgressEvent = typeof WorkspaceMergeProgressEvent.Type;

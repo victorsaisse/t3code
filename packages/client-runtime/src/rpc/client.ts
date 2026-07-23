@@ -55,7 +55,8 @@ export type EnvironmentSubscriptionRpcTag =
 
 export type EnvironmentStreamCommandRpcTag =
   | typeof WS_METHODS.cloudInstallRelayClient
-  | typeof WS_METHODS.gitRunStackedAction;
+  | typeof WS_METHODS.gitRunStackedAction
+  | typeof WS_METHODS.workspaceMergeChangeRequests;
 
 export type EnvironmentStreamRpcTag =
   | EnvironmentSubscriptionRpcTag

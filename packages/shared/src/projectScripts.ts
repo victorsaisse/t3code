@@ -35,3 +35,9 @@ export function projectScriptRuntimeEnv(
 export function setupProjectScript(scripts: readonly ProjectScript[]): ProjectScript | null {
   return scripts.find((script) => script.runOnWorktreeCreate) ?? null;
 }
+
+/** The repo's per-repo deploy command, run after that repo merges during an
+ *  ordered workspace deploy (M5). Null when no script is flagged runOnDeploy. */
+export function deployProjectScript(scripts: readonly ProjectScript[]): ProjectScript | null {
+  return scripts.find((script) => script.runOnDeploy) ?? null;
+}

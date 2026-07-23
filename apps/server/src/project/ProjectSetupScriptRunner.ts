@@ -1,5 +1,9 @@
-import { ProjectId } from "@t3tools/contracts";
-import { projectScriptRuntimeEnv, setupProjectScript } from "@t3tools/shared/projectScripts";
+import { ProjectId, type ProjectScript } from "@t3tools/contracts";
+import {
+  deployProjectScript,
+  projectScriptRuntimeEnv,
+  setupProjectScript,
+} from "@t3tools/shared/projectScripts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -75,6 +79,12 @@ export class ProjectSetupScriptRunner extends Context.Service<
     readonly runForThread: (
       input: ProjectSetupScriptRunnerInput,
     ) => Effect.Effect<ProjectSetupScriptRunnerResult, ProjectSetupScriptRunnerError>;
+    // Run the project's per-repo deploy script (the one flagged runOnDeploy),
+    // used by the M5 ordered workspace merge after each repo merges. Same
+    // fire-and-forget-in-a-terminal semantics as runForThread.
+    readonly runDeployForThread: (
+      input: ProjectSetupScriptRunnerInput,
+    ) => Effect.Effect<ProjectSetupScriptRunnerResult, ProjectSetupScriptRunnerError>;
   }
 >()("t3/project/ProjectSetupScriptRunner") {}
 
@@ -82,9 +92,11 @@ export const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const terminalManager = yield* TerminalManager.TerminalManager;
 
-  const runForThread: ProjectSetupScriptRunner["Service"]["runForThread"] = Effect.fn(
-    "ProjectSetupScriptRunner.runForThread",
-  )(function* (input) {
+  const runSelectedScript = Effect.fn("ProjectSetupScriptRunner.runSelectedScript")(function* (
+    input: ProjectSetupScriptRunnerInput,
+    selectScript: (scripts: ReadonlyArray<ProjectScript>) => ProjectScript | null,
+    terminalPrefix: string,
+  ) {
     const errorContext = {
       threadId: input.threadId,
       worktreePath: input.worktreePath,
@@ -124,14 +136,14 @@ export const make = Effect.gen(function* () {
       return yield* new ProjectSetupScriptProjectNotFoundError(errorContext);
     }
 
-    const script = setupProjectScript(project.scripts);
+    const script = selectScript(project.scripts);
     if (!script) {
       return {
         status: "no-script",
       } as const;
     }
 
-    const terminalId = input.preferredTerminalId ?? `setup-${script.id}`;
+    const terminalId = input.preferredTerminalId ?? `${terminalPrefix}-${script.id}`;
     const cwd = input.worktreePath;
     const env = projectScriptRuntimeEnv({
       project: { cwd: project.workspaceRoot },
@@ -182,7 +194,13 @@ export const make = Effect.gen(function* () {
     } as const;
   });
 
-  return ProjectSetupScriptRunner.of({ runForThread });
+  const runForThread: ProjectSetupScriptRunner["Service"]["runForThread"] = (input) =>
+    runSelectedScript(input, setupProjectScript, "setup");
+
+  const runDeployForThread: ProjectSetupScriptRunner["Service"]["runDeployForThread"] = (input) =>
+    runSelectedScript(input, deployProjectScript, "deploy");
+
+  return ProjectSetupScriptRunner.of({ runForThread, runDeployForThread });
 });
 
 export const layer = Layer.effect(ProjectSetupScriptRunner, make);
