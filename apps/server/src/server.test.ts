@@ -27,6 +27,7 @@ import {
   ProviderInstanceId,
   ResolvedKeybindingRule,
   ThreadId,
+  WorkspaceId,
   WS_METHODS,
   WsRpcGroup,
   EditorId,
@@ -6940,6 +6941,160 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           assert.equal(finalCommand.bootstrap, undefined);
         }
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("runs one setup script per member worktree when bootstrapping a workspace thread", () =>
+    Effect.gen(function* () {
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      const refreshStatus = vi.fn((_: string) =>
+        Effect.succeed({
+          isRepo: true,
+          hasPrimaryRemote: true,
+          isDefaultRef: false,
+          refName: "t3code/ws-branch",
+          hasWorkingTreeChanges: false,
+          workingTree: { files: [], insertions: 0, deletions: 0 },
+          hasUpstream: true,
+          aheadCount: 0,
+          behindCount: 0,
+          pr: null,
+        }),
+      );
+      // Echo the requested worktree path so each member resolves to a distinct
+      // <shared-root>/<label> directory.
+      const createWorktree = vi.fn(
+        (input: Parameters<GitVcsDriver.GitVcsDriver["Service"]["createWorktree"]>[0]) =>
+          Effect.succeed({
+            worktree: { refName: "t3code/ws-branch", path: input.path ?? "" },
+          }),
+      );
+      const runForThread = vi.fn(
+        (
+          input: Parameters<
+            ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"]["runForThread"]
+          >[0],
+        ) =>
+          Effect.succeed({
+            status: "started" as const,
+            scriptId: "setup",
+            scriptName: "Setup",
+            terminalId: input.preferredTerminalId ?? "setup-setup",
+            cwd: input.worktreePath,
+          }),
+      );
+
+      yield* buildAppUnderTest({
+        layers: {
+          gitVcsDriver: { createWorktree },
+          vcsStatusBroadcaster: { refreshStatus },
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                return { sequence: dispatchedCommands.length };
+              }),
+            readEvents: () => Stream.empty,
+          },
+          projectSetupScriptRunner: { runForThread },
+        },
+      });
+
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const wsUrl = yield* getWsServerUrl("/ws");
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.turn.start",
+            commandId: CommandId.make("cmd-ws-bootstrap-turn-start"),
+            threadId: ThreadId.make("thread-ws-bootstrap"),
+            message: {
+              messageId: MessageId.make("msg-ws-bootstrap"),
+              role: "user",
+              text: "hello",
+              attachments: [],
+            },
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            bootstrap: {
+              createThread: {
+                projectId: defaultProjectId,
+                title: "Workspace Thread",
+                modelSelection: defaultModelSelection,
+                runtimeMode: "full-access",
+                interactionMode: "default",
+                branch: "main",
+                worktreePath: null,
+                createdAt,
+              },
+              prepareWorkspaceWorktrees: {
+                workspaceId: WorkspaceId.make("workspace-frontend"),
+                branch: "t3code/ws-branch",
+                repos: [
+                  {
+                    projectId: ProjectId.make("project-api"),
+                    label: "api",
+                    projectCwd: "/tmp/api",
+                    baseBranch: "main",
+                    deployOrder: 0,
+                  },
+                  {
+                    projectId: ProjectId.make("project-web"),
+                    label: "web",
+                    projectCwd: "/tmp/web",
+                    baseBranch: "main",
+                    deployOrder: 1,
+                  },
+                ],
+              },
+              runSetupScript: true,
+            },
+            createdAt,
+          }),
+        ),
+      );
+
+      // One worktree created per member, in deployOrder.
+      assert.equal(createWorktree.mock.calls.length, 2);
+      const apiWorktreePath = createWorktree.mock.calls[0]?.[0]?.path;
+      const webWorktreePath = createWorktree.mock.calls[1]?.[0]?.path;
+      assertTrue(apiWorktreePath?.endsWith("/api") === true);
+      assertTrue(webWorktreePath?.endsWith("/web") === true);
+
+      // Each member's setup script runs in its own worktree + owning repo
+      // context, with a per-member terminal id (not one run against the shared
+      // non-git root).
+      assert.equal(runForThread.mock.calls.length, 2);
+      assert.deepEqual(runForThread.mock.calls[0]?.[0], {
+        threadId: ThreadId.make("thread-ws-bootstrap"),
+        projectId: ProjectId.make("project-api"),
+        projectCwd: "/tmp/api",
+        preferredTerminalId: "setup-api",
+        worktreePath: apiWorktreePath,
+      });
+      assert.deepEqual(runForThread.mock.calls[1]?.[0], {
+        threadId: ThreadId.make("thread-ws-bootstrap"),
+        projectId: ProjectId.make("project-web"),
+        projectCwd: "/tmp/web",
+        preferredTerminalId: "setup-web",
+        worktreePath: webWorktreePath,
+      });
+
+      // Two setup activities (requested + started) per member = four total.
+      const setupActivities = dispatchedCommands.filter(
+        (command): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
+          command.type === "thread.activity.append",
+      );
+      assert.deepEqual(
+        setupActivities.map((command) => command.activity.kind),
+        [
+          "setup-script.requested",
+          "setup-script.started",
+          "setup-script.requested",
+          "setup-script.started",
+        ],
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("records setup-script failures without aborting bootstrap turn start", () =>

@@ -61,6 +61,7 @@ import {
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
   type WorkspaceId,
+  type WorkspaceWorktree,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -951,6 +952,10 @@ const makeWsRpcLayer = (
           let targetProjectId = bootstrap?.createThread?.projectId;
           let targetProjectCwd = bootstrap?.prepareWorktree?.projectCwd;
           let targetWorktreePath = bootstrap?.createThread?.worktreePath ?? null;
+          // Workspace threads run one setup script per member worktree (each in
+          // its owning repo's context), not a single script against the shared
+          // non-git root. Populated after provisioning; empty for single-repo.
+          let workspaceSetupTargets: ReadonlyArray<WorkspaceWorktree> = [];
 
           const cleanupCreatedThread = () =>
             createdThread
@@ -1043,18 +1048,23 @@ const makeWsRpcLayer = (
               );
             });
 
-          const runSetupProgram = () =>
+          const runSetupForTarget = (input: {
+            readonly worktreePath: string;
+            readonly projectId?: string;
+            readonly projectCwd?: string;
+            readonly preferredTerminalId?: string;
+          }) =>
             Effect.gen(function* () {
-              if (!bootstrap?.runSetupScript || !targetWorktreePath) {
-                return;
-              }
-              const worktreePath = targetWorktreePath;
+              const worktreePath = input.worktreePath;
               const requestedAt = yield* nowIso;
               yield* projectSetupScriptRunner
                 .runForThread({
                   threadId: command.threadId,
-                  ...(targetProjectId ? { projectId: targetProjectId } : {}),
-                  ...(targetProjectCwd ? { projectCwd: targetProjectCwd } : {}),
+                  ...(input.projectId ? { projectId: input.projectId } : {}),
+                  ...(input.projectCwd ? { projectCwd: input.projectCwd } : {}),
+                  ...(input.preferredTerminalId
+                    ? { preferredTerminalId: input.preferredTerminalId }
+                    : {}),
                   worktreePath,
                 })
                 .pipe(
@@ -1079,6 +1089,38 @@ const makeWsRpcLayer = (
                     },
                   }),
                 );
+            });
+
+          const runSetupProgram = () =>
+            Effect.gen(function* () {
+              if (!bootstrap?.runSetupScript) {
+                return;
+              }
+              // Workspace thread: run each member's setup script in its own
+              // freshly-created worktree (a new worktree has no node_modules), so
+              // one slow/missing member never blocks the others.
+              if (workspaceSetupTargets.length > 0) {
+                yield* Effect.forEach(
+                  workspaceSetupTargets,
+                  (target) =>
+                    runSetupForTarget({
+                      worktreePath: target.repoWorktreePath,
+                      projectId: target.projectId,
+                      projectCwd: target.sourceRepoRoot,
+                      preferredTerminalId: `setup-${target.label}`,
+                    }),
+                  { concurrency: 1, discard: true },
+                );
+                return;
+              }
+              if (!targetWorktreePath) {
+                return;
+              }
+              yield* runSetupForTarget({
+                worktreePath: targetWorktreePath,
+                ...(targetProjectId ? { projectId: targetProjectId } : {}),
+                ...(targetProjectCwd ? { projectCwd: targetProjectCwd } : {}),
+              });
             });
 
           const bootstrapProgram = Effect.gen(function* () {
@@ -1170,6 +1212,7 @@ const makeWsRpcLayer = (
               });
 
               targetWorktreePath = workspaceThreadRoot;
+              workspaceSetupTargets = provisioned;
               yield* orchestrationEngine.dispatch({
                 type: "thread.meta.update",
                 commandId: yield* serverCommandId("bootstrap-thread-workspace-meta-update"),

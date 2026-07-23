@@ -4383,6 +4383,9 @@ function ChatViewContent(props: ChatViewProps) {
                         deployOrder: repo.deployOrder,
                       })),
                     },
+                    // Each freshly-created member worktree needs its own setup
+                    // script run (no node_modules yet); the server loops members.
+                    runSetupScript: true,
                   }
                 : {}),
             }

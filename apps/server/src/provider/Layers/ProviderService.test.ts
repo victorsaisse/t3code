@@ -13,6 +13,7 @@ import type {
 import {
   ApprovalRequestId,
   EventId,
+  ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderSessionStartInput,
@@ -65,6 +66,7 @@ const asRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make
 const asEventId = (value: string): EventId => EventId.make(value);
 const asThreadId = (value: string): ThreadId => ThreadId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
+const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const codexInstanceId = ProviderInstanceId.make("codex");
 const claudeAgentInstanceId = ProviderInstanceId.make("claudeAgent");
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
@@ -103,6 +105,12 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
           opaque: `resume-${String(input.threadId)}`,
         },
         cwd: input.cwd ?? process.cwd(),
+        // Round-trip the workspace-thread grants like the real adapters, so the
+        // binding persists them and a recovered session can restore them.
+        ...(input.additionalDirectories && input.additionalDirectories.length > 0
+          ? { additionalDirectories: input.additionalDirectories }
+          : {}),
+        ...(input.repos && input.repos.length > 0 ? { repos: input.repos } : {}),
         createdAt: now,
         updatedAt: now,
       };
@@ -1155,6 +1163,55 @@ routing.layer("ProviderServiceLive routing", (it) => {
         assert.equal(startPayload.cwd, "/tmp/project-send-turn");
         assert.deepEqual(startPayload.resumeCursor, initial.resumeCursor);
         assert.equal(startPayload.threadId, initial.threadId);
+      }
+      assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
+    }),
+  );
+
+  it.effect("recovers stale workspace sessions with persisted additionalDirectories + repos", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+
+      const workspaceDirectories = ["/tmp/ws/api", "/tmp/ws/web"];
+      const workspaceRepos = [
+        { label: "api", path: "/tmp/ws/api", projectId: asProjectId("project-api") },
+        { label: "web", path: "/tmp/ws/web", projectId: asProjectId("project-web") },
+      ];
+
+      const initial = yield* provider.startSession(asThreadId("thread-ws"), {
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: codexInstanceId,
+        threadId: asThreadId("thread-ws"),
+        cwd: "/tmp/ws",
+        additionalDirectories: workspaceDirectories,
+        repos: workspaceRepos,
+        runtimeMode: "full-access",
+      });
+
+      // Drop the in-memory session but keep the persisted binding, then send a
+      // turn so the recover-from-binding path rebuilds the session.
+      yield* routing.codex.stopAll();
+      routing.codex.startSession.mockClear();
+      routing.codex.sendTurn.mockClear();
+
+      yield* provider.sendTurn({
+        threadId: initial.threadId,
+        input: "resume",
+        attachments: [],
+      });
+
+      assert.equal(routing.codex.startSession.mock.calls.length, 1);
+      const resumedStartInput = routing.codex.startSession.mock.calls[0]?.[0];
+      assert.equal(typeof resumedStartInput === "object" && resumedStartInput !== null, true);
+      if (resumedStartInput && typeof resumedStartInput === "object") {
+        const startPayload = resumedStartInput as {
+          cwd?: string;
+          additionalDirectories?: ReadonlyArray<string>;
+          repos?: ReadonlyArray<{ label: string; path: string; projectId: string }>;
+        };
+        assert.equal(startPayload.cwd, "/tmp/ws");
+        assert.deepEqual(startPayload.additionalDirectories, workspaceDirectories);
+        assert.deepEqual(startPayload.repos, workspaceRepos);
       }
       assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
     }),

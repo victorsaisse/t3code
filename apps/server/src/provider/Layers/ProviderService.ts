@@ -12,7 +12,9 @@
 import {
   ModelSelection,
   NonNegativeInt,
+  ProviderSessionRepo,
   ThreadId,
+  TrimmedNonEmptyString,
   ProviderInterruptTurnInput,
   ProviderRespondToRequestInput,
   ProviderRespondToUserInputInput,
@@ -132,6 +134,15 @@ function toRuntimePayloadFromSession(
     model: session.model ?? null,
     activeTurnId: session.activeTurnId ?? null,
     lastError: session.lastError ?? null,
+    // Persist the workspace-thread grants so a session rebuilt purely from the
+    // binding (recoverSessionForThread, e.g. after a server restart) still hands
+    // the agent every member worktree + manifest instead of collapsing to the
+    // shared root. Shallow-merged by the directory, so present-only writes here
+    // survive subsequent partial payload updates (sendTurn/stop).
+    ...(session.additionalDirectories && session.additionalDirectories.length > 0
+      ? { additionalDirectories: session.additionalDirectories }
+      : {}),
+    ...(session.repos && session.repos.length > 0 ? { repos: session.repos } : {}),
     ...(extra?.modelSelection !== undefined ? { modelSelection: extra.modelSelection } : {}),
     ...(extra?.lastRuntimeEvent !== undefined ? { lastRuntimeEvent: extra.lastRuntimeEvent } : {}),
     ...(extra?.lastRuntimeEventAt !== undefined
@@ -160,6 +171,40 @@ function readPersistedCwd(
   if (typeof rawCwd !== "string") return undefined;
   const trimmed = rawCwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+const decodePersistedAdditionalDirectories = Schema.decodeUnknownOption(
+  Schema.Array(TrimmedNonEmptyString),
+);
+const decodePersistedRepos = Schema.decodeUnknownOption(Schema.Array(ProviderSessionRepo));
+
+function readPersistedAdditionalDirectories(
+  runtimePayload: ProviderSessionDirectory.ProviderRuntimeBinding["runtimePayload"],
+): ReadonlyArray<string> | undefined {
+  if (!runtimePayload || typeof runtimePayload !== "object" || Array.isArray(runtimePayload)) {
+    return undefined;
+  }
+  const raw =
+    "additionalDirectories" in runtimePayload ? runtimePayload.additionalDirectories : undefined;
+  const decoded = decodePersistedAdditionalDirectories(raw);
+  return Option.match(decoded, {
+    onNone: () => undefined,
+    onSome: (dirs) => (dirs.length > 0 ? dirs : undefined),
+  });
+}
+
+function readPersistedRepos(
+  runtimePayload: ProviderSessionDirectory.ProviderRuntimeBinding["runtimePayload"],
+): ProviderSessionStartInput["repos"] | undefined {
+  if (!runtimePayload || typeof runtimePayload !== "object" || Array.isArray(runtimePayload)) {
+    return undefined;
+  }
+  const raw = "repos" in runtimePayload ? runtimePayload.repos : undefined;
+  const decoded = decodePersistedRepos(raw);
+  return Option.match(decoded, {
+    onNone: () => undefined,
+    onSome: (repos) => (repos.length > 0 ? repos : undefined),
+  });
 }
 
 const dieOnMissingBindingInstanceId = (
@@ -396,6 +441,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
       const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
       const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
+      // Workspace threads: restore the sibling worktree grants + manifest so a
+      // session rebuilt purely from the binding still spans every member repo.
+      const persistedAdditionalDirectories = readPersistedAdditionalDirectories(
+        input.binding.runtimePayload,
+      );
+      const persistedRepos = readPersistedRepos(input.binding.runtimePayload);
 
       yield* prepareMcpSession(input.binding.threadId, bindingInstanceId);
       const resumed = yield* adapter
@@ -405,6 +456,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           providerInstanceId: bindingInstanceId,
           ...(persistedCwd ? { cwd: persistedCwd } : {}),
           ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
+          ...(persistedAdditionalDirectories
+            ? { additionalDirectories: persistedAdditionalDirectories }
+            : {}),
+          ...(persistedRepos ? { repos: persistedRepos } : {}),
           ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
           runtimeMode: input.binding.runtimeMode ?? "full-access",
         })
