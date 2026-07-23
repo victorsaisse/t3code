@@ -3,7 +3,10 @@ import type {
   EnvironmentWorkspace,
 } from "@t3tools/client-runtime/state/shell";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import { MAX_MEMBER_LABEL_LENGTH } from "@t3tools/shared/path";
 import type { EnvironmentId, ThreadId, WorkspaceId, WorkspaceMember } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
@@ -15,11 +18,13 @@ import {
   SquarePenIcon,
   Trash2Icon,
 } from "lucide-react";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useWorkspaceThreadHandler } from "../hooks/useHandleNewThread";
+import { readLocalApi } from "../localApi";
 import { newWorkspaceId } from "../lib/utils";
 import { useProjects, useThreadShells, useWorkspaces } from "../state/entities";
+import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import { workspaceEnvironment } from "../state/workspaces";
 import { buildThreadRouteParams } from "../threadRoutes";
@@ -46,6 +51,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "./ui/sidebar";
+import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const SIDEBAR_ICON_ACTION_BUTTON_CLASS =
@@ -237,9 +243,73 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
   const { workspace, threads, activeThreadKey, expanded, onToggleExpanded, onNavigateThread } =
     props;
   const deleteWorkspace = useAtomCommand(workspaceEnvironment.delete, { reportFailure: false });
+  const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
   const startWorkspaceThread = useWorkspaceThreadHandler();
   const memberCount = workspace.members.length;
   const memberSummary = workspace.members.map((member) => member.label).join(" · ");
+
+  // Manual rename for workspace threads, mirroring the project-thread rename in
+  // SidebarV2 (double-click or right-click -> Rename). The RPC (thread.meta.update)
+  // is thread-id-keyed, so no server change is needed.
+  const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
+  const [renamingTitle, setRenamingTitle] = useState("");
+  const renameCommittedRef = useRef(false);
+  useEffect(() => {
+    if (renamingThreadId !== null) renameCommittedRef.current = false;
+  }, [renamingThreadId]);
+
+  const startRename = useCallback((thread: EnvironmentThreadShell) => {
+    setRenamingThreadId(thread.id);
+    setRenamingTitle(thread.title);
+  }, []);
+
+  const commitRename = useCallback(
+    (thread: EnvironmentThreadShell, nextTitle: string) => {
+      void (async () => {
+        const trimmed = nextTitle.trim();
+        setRenamingThreadId(null);
+        if (trimmed.length === 0) {
+          toastManager.add({ type: "warning", title: "Thread title cannot be empty" });
+          return;
+        }
+        if (trimmed === thread.title) return;
+        const result = await updateThreadMetadata({
+          environmentId: thread.environmentId,
+          input: { threadId: thread.id, title: trimmed },
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to rename thread",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+      })();
+    },
+    [updateThreadMetadata],
+  );
+
+  const openThreadContextMenu = useCallback(
+    (thread: EnvironmentThreadShell, position: { x: number; y: number }) => {
+      const api = readLocalApi();
+      if (!api) return;
+      void (async () => {
+        const choice = await api.contextMenu.show(
+          [{ id: "rename", label: "Rename thread" }],
+          position,
+        );
+        if (choice === "rename") {
+          startRename(thread);
+        }
+      })();
+    },
+    [startRename],
+  );
 
   const handleDelete = useCallback(async () => {
     await deleteWorkspace({
@@ -325,21 +395,63 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
           <SidebarMenuSub>
             {threads.map((thread) => {
               const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+              const isRenaming = renamingThreadId === thread.id;
               return (
                 <SidebarMenuSubItem key={threadKey}>
-                  <SidebarMenuSubButton
-                    size="sm"
-                    isActive={threadKey === activeThreadKey}
-                    render={
-                      <button
-                        type="button"
-                        title={thread.title}
-                        onClick={() => onNavigateThread(thread)}
-                      >
-                        <span className="truncate">{thread.title}</span>
-                      </button>
-                    }
-                  />
+                  {isRenaming ? (
+                    <input
+                      autoFocus
+                      value={renamingTitle}
+                      aria-label="Thread title"
+                      onChange={(event) => setRenamingTitle(event.target.value)}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          renameCommittedRef.current = true;
+                          commitRename(thread, renamingTitle);
+                        } else if (event.key === "Escape") {
+                          event.preventDefault();
+                          renameCommittedRef.current = true;
+                          setRenamingThreadId(null);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (!renameCommittedRef.current) commitRename(thread, renamingTitle);
+                      }}
+                      onClick={(event) => event.stopPropagation()}
+                      className="ml-1.5 min-w-0 flex-1 rounded-sm border border-border bg-background px-1 py-0.5 text-xs text-foreground outline-none focus:border-foreground"
+                    />
+                  ) : (
+                    <SidebarMenuSubButton
+                      size="sm"
+                      isActive={threadKey === activeThreadKey}
+                      render={
+                        <button
+                          type="button"
+                          title={thread.title}
+                          onClick={() => onNavigateThread(thread)}
+                          onDoubleClick={(event) => {
+                            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+                              return;
+                            }
+                            event.preventDefault();
+                            startRename(thread);
+                          }}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            openThreadContextMenu(thread, {
+                              x: event.clientX,
+                              y: event.clientY,
+                            });
+                          }}
+                        >
+                          <span className="truncate">{thread.title}</span>
+                        </button>
+                      }
+                    />
+                  )}
                 </SidebarMenuSubItem>
               );
             })}
