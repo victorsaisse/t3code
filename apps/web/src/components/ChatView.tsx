@@ -349,6 +349,7 @@ const PreviewPanel = lazy(() =>
   import("./preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
 );
 const DiffPanel = lazy(() => import("./DiffPanel"));
+const WorkspaceDiffPanel = lazy(() => import("./WorkspaceDiffPanel"));
 const FilePreviewPanel = lazy(() => import("./files/FilePreviewPanel"));
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
 const TYPE_TO_FOCUS_EDITABLE_SELECTOR = [
@@ -2317,6 +2318,10 @@ function ChatViewContent(props: ChatViewProps) {
     terminalUiLaunchContext?.threadId === activeThreadId ? terminalUiLaunchContext : null;
   // Default true while loading to avoid toolbar flicker.
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
+  // A workspace thread's own cwd is the (non-git) shared root, but its member
+  // worktrees are real repos - so the diff surface is available even though
+  // `isGitRepo` is false for the shared root.
+  const isWorkspaceThread = (activeThread?.worktrees.length ?? 0) > 0;
   const initialDiffPanelGitScope =
     gitStatusQuery.data?.hasWorkingTreeChanges === true ? "unstaged" : "branch";
   const diffPanelGitStatusResolutionKey = gitStatusQuery.data ? "resolved" : "pending";
@@ -2928,7 +2933,9 @@ function ChatViewContent(props: ChatViewProps) {
     void addBrowserSurface({ threadRef: activeThreadRef, openPreview });
   }, [activeThreadRef, openPreview]);
   const addDiffSurface = useCallback(() => {
-    if (!activeThreadRef || !isServerThread || !isGitRepo) return;
+    // Workspace threads have a non-git shared-root cwd (isGitRepo === false) but
+    // still expose a per-repo diff, so allow the surface for them too.
+    if (!activeThreadRef || !isServerThread || (!isGitRepo && !isWorkspaceThread)) return;
     if (planSidebarOpen) {
       dismissPlanSidebarForCurrentTurn();
     }
@@ -2938,6 +2945,7 @@ function ChatViewContent(props: ChatViewProps) {
     activeThreadRef,
     dismissPlanSidebarForCurrentTurn,
     isGitRepo,
+    isWorkspaceThread,
     isServerThread,
     onDiffPanelOpen,
     planSidebarOpen,
@@ -5191,12 +5199,23 @@ function ChatViewContent(props: ChatViewProps) {
       />
     ) : activeRightPanelSurface?.kind === "diff" ? (
       <Suspense fallback={null}>
-        <DiffPanel
-          key={`${activeThreadKey}:${diffPanelGitStatusResolutionKey}`}
-          mode="embedded"
-          composerDraftTarget={composerDraftTarget}
-          initialGitScope={initialDiffPanelGitScope}
-        />
+        {activeThread && activeThread.worktrees.length > 0 ? (
+          // Workspace threads span multiple member repos, each with its own
+          // worktree; show a per-repo grouped diff instead of the single-cwd
+          // DiffPanel (whose one `cwd` is the non-git shared root here).
+          <WorkspaceDiffPanel
+            key={`${activeThreadKey}:workspace-diff`}
+            mode="embedded"
+            composerDraftTarget={composerDraftTarget}
+          />
+        ) : (
+          <DiffPanel
+            key={`${activeThreadKey}:${diffPanelGitStatusResolutionKey}`}
+            mode="embedded"
+            composerDraftTarget={composerDraftTarget}
+            initialGitScope={initialDiffPanelGitScope}
+          />
+        )}
       </Suspense>
     ) : activeRightPanelSurface?.kind === "plan" ? (
       <PlanSidebar
@@ -5607,7 +5626,7 @@ function ChatViewContent(props: ChatViewProps) {
           onAddDiff={addDiffSurface}
           onAddFiles={addFilesSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
-          diffAvailable={isServerThread && isGitRepo}
+          diffAvailable={isServerThread && (isGitRepo || isWorkspaceThread)}
           filesAvailable={activeProject !== null}
         >
           {rightPanelContent}
@@ -5634,7 +5653,7 @@ function ChatViewContent(props: ChatViewProps) {
             onAddDiff={addDiffSurface}
             onAddFiles={addFilesSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
-            diffAvailable={isServerThread && isGitRepo}
+            diffAvailable={isServerThread && (isGitRepo || isWorkspaceThread)}
             filesAvailable={activeProject !== null}
           >
             {rightPanelContent}
