@@ -1,7 +1,12 @@
 import { useParams } from "@tanstack/react-router";
+import {
+  isAtomCommandInterrupted,
+  runAtomCommand,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, ScopedThreadRef, WorkspaceWorktree } from "@t3tools/contracts";
-import { BoxesIcon, PilcrowIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { BoxesIcon, PilcrowIcon, UploadCloudIcon } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 
 import { type DraftId } from "../composerDraftStore";
 import { useTheme } from "../hooks/useTheme";
@@ -13,13 +18,27 @@ import {
   resolveDiffThemeName,
   resolveFileDiffPath,
 } from "../lib/diffRendering";
-import { cn } from "~/lib/utils";
+import { openPullRequestLink } from "../lib/openPullRequestLink";
+import {
+  isWorktreeShippable,
+  resolveShipPrUrl,
+  resolveWorkspaceShipBranch,
+  summarizeWorkspaceShip,
+  type WorkspaceShipEntry,
+} from "../lib/workspaceShip";
+import { readLocalApi } from "../localApi";
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { cn, randomUUID } from "~/lib/utils";
 import { useThread } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
+import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { reviewEnvironment } from "../state/review";
+import { vcsActionManager, vcsEnvironment } from "../state/vcs";
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { AnnotatableCodeView } from "./diffs/AnnotatableCodeView";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
+import { Button } from "./ui/button";
+import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Toggle } from "./ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
@@ -172,6 +191,138 @@ export default function WorkspaceDiffPanel({
     [worktrees],
   );
 
+  const environmentId = activeThread?.environmentId ?? null;
+  const [isShipping, setIsShipping] = useState(false);
+  // Fetch fresh per-cwd status imperatively (mounts+fetches) for the no-change
+  // filter - a hook per worktree would violate the rules-of-hooks.
+  const runStatusQuery = useAtomQueryRunner(vcsEnvironment.status);
+  const threadToastData = useMemo(
+    () => (routeThreadRef ? { threadRef: routeThreadRef } : undefined),
+    [routeThreadRef],
+  );
+
+  // Ship one PR per CHANGED member repo on the shared branch. Each worktree is
+  // already checked out on that branch (the bootstrap creates it there), so a
+  // plain commit_push_pr targets it directly - no feature-branch step. Runs the
+  // same keyed, serial-per-target vcsAction command per repo, in parallel across
+  // repos. PR creation needs a real remote, so this is exercised by the pure
+  // unit test here and manually QA'd against repos with GitHub remotes.
+  const shipAllRepos = useCallback(async () => {
+    if (environmentId === null || isShipping) {
+      return;
+    }
+    if (resolveWorkspaceShipBranch(orderedWorktrees) === null) {
+      return;
+    }
+    setIsShipping(true);
+    try {
+      const shippable: WorkspaceWorktree[] = [];
+      for (const worktree of orderedWorktrees) {
+        const statusResult = await runStatusQuery({
+          environmentId,
+          input: { cwd: worktree.repoWorktreePath },
+        });
+        if (statusResult._tag === "Success" && isWorktreeShippable(statusResult.value)) {
+          shippable.push(worktree);
+        }
+      }
+      if (shippable.length === 0) {
+        toastManager.add({
+          type: "info",
+          title: "Nothing to ship",
+          description: "No workspace repos have changes to open a pull request for.",
+          ...(threadToastData ? { data: threadToastData } : {}),
+        });
+        return;
+      }
+
+      const entries = (
+        await Promise.all(
+          shippable.map(async (worktree): Promise<WorkspaceShipEntry | null> => {
+            const toastId = toastManager.add({
+              type: "loading",
+              title: `Shipping ${worktree.label}...`,
+              description: "Waiting for Git...",
+              timeout: 0,
+              ...(threadToastData ? { data: threadToastData } : {}),
+            });
+            const result = await runAtomCommand(
+              appAtomRegistry,
+              vcsActionManager.runStackedAction({
+                environmentId,
+                cwd: worktree.repoWorktreePath,
+              }),
+              { actionId: randomUUID(), action: "commit_push_pr" },
+              { reportFailure: false },
+            );
+            if (result._tag === "Failure") {
+              if (isAtomCommandInterrupted(result)) {
+                toastManager.close(toastId);
+                return null;
+              }
+              const error = squashAtomCommandFailure(result);
+              const message = error instanceof Error ? error.message : "An error occurred.";
+              toastManager.update(
+                toastId,
+                stackedThreadToast({
+                  type: "error",
+                  title: `${worktree.label} failed`,
+                  description: message,
+                  ...(threadToastData ? { data: threadToastData } : {}),
+                }),
+              );
+              return { label: worktree.label, prUrl: null, error: message };
+            }
+            const prUrl = resolveShipPrUrl(result.value);
+            toastManager.update(
+              toastId,
+              stackedThreadToast({
+                type: "success",
+                title: result.value.toast.title,
+                ...(result.value.toast.description
+                  ? { description: result.value.toast.description }
+                  : {}),
+                timeout: 0,
+                ...(prUrl
+                  ? {
+                      actionProps: {
+                        children: "Open PR",
+                        onClick: () => {
+                          const api = readLocalApi();
+                          if (api) {
+                            void openPullRequestLink(api.shell, prUrl);
+                          }
+                        },
+                      },
+                    }
+                  : {}),
+                ...(threadToastData
+                  ? { data: { ...threadToastData, dismissAfterVisibleMs: 10_000 } }
+                  : {}),
+              }),
+            );
+            return { label: worktree.label, prUrl, error: null };
+          }),
+        )
+      ).filter((entry): entry is WorkspaceShipEntry => entry !== null);
+
+      if (entries.length === 0) {
+        return;
+      }
+      const summary = summarizeWorkspaceShip(entries);
+      toastManager.add({
+        type: summary.failed > 0 ? "warning" : "success",
+        title:
+          summary.failed > 0
+            ? `Shipped ${summary.shipped} of ${entries.length} repos`
+            : `Shipped ${summary.shipped} repo${summary.shipped === 1 ? "" : "s"}`,
+        ...(threadToastData ? { data: threadToastData } : {}),
+      });
+    } finally {
+      setIsShipping(false);
+    }
+  }, [environmentId, isShipping, orderedWorktrees, runStatusQuery, threadToastData]);
+
   const header = (
     <>
       <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -182,6 +333,15 @@ export default function WorkspaceDiffPanel({
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+        <Button
+          variant="outline"
+          size="xs"
+          disabled={isShipping || orderedWorktrees.length === 0}
+          onClick={() => void shipAllRepos()}
+        >
+          <UploadCloudIcon className="size-3.5" aria-hidden />
+          <span className="ml-0.5">{isShipping ? "Shipping..." : "Ship all repos"}</span>
+        </Button>
         <Tooltip>
           <TooltipTrigger
             render={
