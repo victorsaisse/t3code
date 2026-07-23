@@ -20,6 +20,7 @@ import type {
   ProjectId,
   ThreadId,
   WorkspaceId,
+  WorkspaceWorktree,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Option from "effect/Option";
@@ -41,6 +42,9 @@ export interface ProjectionThreadCheckpointContext {
   readonly projectId: ProjectId;
   readonly workspaceRoot: string;
   readonly worktreePath: string | null;
+  // Member worktrees for a workspace thread (empty for single-repo threads), so
+  // per-repo checkpoint diffs can loop each real git worktree.
+  readonly worktrees: ReadonlyArray<WorkspaceWorktree>;
   readonly checkpoints: ReadonlyArray<OrchestrationCheckpointSummary>;
 }
 
@@ -49,6 +53,7 @@ export interface ProjectionFullThreadDiffContext {
   readonly projectId: ProjectId;
   readonly workspaceRoot: string;
   readonly worktreePath: string | null;
+  readonly worktrees: ReadonlyArray<WorkspaceWorktree>;
   readonly latestCheckpointTurnCount: number;
   readonly toCheckpointRef: CheckpointRef | null;
 }

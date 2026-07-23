@@ -30,7 +30,7 @@ import {
   CheckpointWorkspacePathMissingError,
 } from "./Errors.ts";
 import type { CheckpointServiceError } from "./Errors.ts";
-import { checkpointRefForThreadTurn } from "./Utils.ts";
+import { checkpointRefForThreadTurn, checkpointRefForThreadTurnScoped } from "./Utils.ts";
 import * as CheckpointStore from "./CheckpointStore.ts";
 
 /** Service tag for checkpoint diff queries. */
@@ -129,50 +129,79 @@ export const make = Effect.gen(function* () {
         });
       }
 
-      const workspaceCwd = threadContext.value.worktreePath ?? threadContext.value.workspaceRoot;
-      if (!workspaceCwd) {
-        return yield* new CheckpointWorkspacePathMissingError({
-          operation,
-          threadId: input.threadId,
-        });
-      }
+      // Workspace thread: diff each member worktree against its own scoped refs
+      // and concatenate the unified patches. Single-repo threads keep using the
+      // one workspace cwd and the read-model checkpoint refs, unchanged.
+      const worktrees = threadContext.value.worktrees;
+      let diff: string;
+      if (worktrees.length > 0) {
+        const parts = yield* Effect.forEach(
+          [...worktrees].sort((left, right) => left.deployOrder - right.deployOrder),
+          (worktree) =>
+            checkpointStore.diffCheckpoints({
+              cwd: worktree.repoWorktreePath,
+              fromCheckpointRef: checkpointRefForThreadTurnScoped(
+                input.threadId,
+                input.fromTurnCount,
+                worktree.label,
+              ),
+              toCheckpointRef: checkpointRefForThreadTurnScoped(
+                input.threadId,
+                input.toTurnCount,
+                worktree.label,
+              ),
+              fallbackFromToHead: false,
+              ignoreWhitespace,
+            }),
+          { concurrency: 1 },
+        ).pipe(Effect.withSpan("checkpoint.turnDiff.diffCheckpoints"));
+        diff = parts.filter((part) => part.trim().length > 0).join("\n");
+      } else {
+        const workspaceCwd = threadContext.value.worktreePath ?? threadContext.value.workspaceRoot;
+        if (!workspaceCwd) {
+          return yield* new CheckpointWorkspacePathMissingError({
+            operation,
+            threadId: input.threadId,
+          });
+        }
 
-      const fromCheckpointRef =
-        input.fromTurnCount === 0
-          ? checkpointRefForThreadTurn(input.threadId, 0)
-          : threadContext.value.checkpoints.find(
-              (checkpoint) => checkpoint.checkpointTurnCount === input.fromTurnCount,
-            )?.checkpointRef;
-      if (!fromCheckpointRef) {
-        return yield* new CheckpointRefUnavailableError({
-          operation,
-          threadId: input.threadId,
-          turnCount: input.fromTurnCount,
-          checkpoint: "from",
-        });
-      }
+        const fromCheckpointRef =
+          input.fromTurnCount === 0
+            ? checkpointRefForThreadTurn(input.threadId, 0)
+            : threadContext.value.checkpoints.find(
+                (checkpoint) => checkpoint.checkpointTurnCount === input.fromTurnCount,
+              )?.checkpointRef;
+        if (!fromCheckpointRef) {
+          return yield* new CheckpointRefUnavailableError({
+            operation,
+            threadId: input.threadId,
+            turnCount: input.fromTurnCount,
+            checkpoint: "from",
+          });
+        }
 
-      const toCheckpointRef = threadContext.value.checkpoints.find(
-        (checkpoint) => checkpoint.checkpointTurnCount === input.toTurnCount,
-      )?.checkpointRef;
-      if (!toCheckpointRef) {
-        return yield* new CheckpointRefUnavailableError({
-          operation,
-          threadId: input.threadId,
-          turnCount: input.toTurnCount,
-          checkpoint: "to",
-        });
-      }
+        const toCheckpointRef = threadContext.value.checkpoints.find(
+          (checkpoint) => checkpoint.checkpointTurnCount === input.toTurnCount,
+        )?.checkpointRef;
+        if (!toCheckpointRef) {
+          return yield* new CheckpointRefUnavailableError({
+            operation,
+            threadId: input.threadId,
+            turnCount: input.toTurnCount,
+            checkpoint: "to",
+          });
+        }
 
-      const diff = yield* checkpointStore
-        .diffCheckpoints({
-          cwd: workspaceCwd,
-          fromCheckpointRef,
-          toCheckpointRef,
-          fallbackFromToHead: false,
-          ignoreWhitespace,
-        })
-        .pipe(Effect.withSpan("checkpoint.turnDiff.diffCheckpoints"));
+        diff = yield* checkpointStore
+          .diffCheckpoints({
+            cwd: workspaceCwd,
+            fromCheckpointRef,
+            toCheckpointRef,
+            fallbackFromToHead: false,
+            ignoreWhitespace,
+          })
+          .pipe(Effect.withSpan("checkpoint.turnDiff.diffCheckpoints"));
+      }
 
       const turnDiff = buildTurnDiffResult(input, diff);
       if (!isTurnDiffResult(turnDiff)) {
@@ -237,32 +266,55 @@ export const make = Effect.gen(function* () {
       });
     }
 
-    const workspaceCwd = threadContext.value.worktreePath ?? threadContext.value.workspaceRoot;
-    if (!workspaceCwd) {
-      return yield* new CheckpointWorkspacePathMissingError({
-        operation,
-        threadId: input.threadId,
-      });
-    }
+    // Workspace thread: concatenate each member repo's full (turn 0 -> to) diff.
+    const worktrees = threadContext.value.worktrees;
+    let diff: string;
+    if (worktrees.length > 0) {
+      const parts = yield* Effect.forEach(
+        [...worktrees].sort((left, right) => left.deployOrder - right.deployOrder),
+        (worktree) =>
+          checkpointStore.diffCheckpoints({
+            cwd: worktree.repoWorktreePath,
+            fromCheckpointRef: checkpointRefForThreadTurnScoped(input.threadId, 0, worktree.label),
+            toCheckpointRef: checkpointRefForThreadTurnScoped(
+              input.threadId,
+              input.toTurnCount,
+              worktree.label,
+            ),
+            fallbackFromToHead: false,
+            ignoreWhitespace,
+          }),
+        { concurrency: 1 },
+      ).pipe(Effect.withSpan("checkpoint.fullThread.diffCheckpoints"));
+      diff = parts.filter((part) => part.trim().length > 0).join("\n");
+    } else {
+      const workspaceCwd = threadContext.value.worktreePath ?? threadContext.value.workspaceRoot;
+      if (!workspaceCwd) {
+        return yield* new CheckpointWorkspacePathMissingError({
+          operation,
+          threadId: input.threadId,
+        });
+      }
 
-    if (!threadContext.value.toCheckpointRef) {
-      return yield* new CheckpointRefUnavailableError({
-        operation,
-        threadId: input.threadId,
-        turnCount: input.toTurnCount,
-        checkpoint: "to",
-      });
-    }
+      if (!threadContext.value.toCheckpointRef) {
+        return yield* new CheckpointRefUnavailableError({
+          operation,
+          threadId: input.threadId,
+          turnCount: input.toTurnCount,
+          checkpoint: "to",
+        });
+      }
 
-    const diff = yield* checkpointStore
-      .diffCheckpoints({
-        cwd: workspaceCwd,
-        fromCheckpointRef: checkpointRefForThreadTurn(input.threadId, 0),
-        toCheckpointRef: threadContext.value.toCheckpointRef as CheckpointRef,
-        fallbackFromToHead: false,
-        ignoreWhitespace,
-      })
-      .pipe(Effect.withSpan("checkpoint.fullThread.diffCheckpoints"));
+      diff = yield* checkpointStore
+        .diffCheckpoints({
+          cwd: workspaceCwd,
+          fromCheckpointRef: checkpointRefForThreadTurn(input.threadId, 0),
+          toCheckpointRef: threadContext.value.toCheckpointRef as CheckpointRef,
+          fallbackFromToHead: false,
+          ignoreWhitespace,
+        })
+        .pipe(Effect.withSpan("checkpoint.fullThread.diffCheckpoints"));
+    }
 
     const turnDiff = buildTurnDiffResult(
       {

@@ -270,6 +270,10 @@ export class GitVcsDriver extends Context.Service<
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const GIT_CHECK_IGNORE_MAX_STDIN_BYTES = 256 * 1024;
 const CHECKPOINT_DIFF_MAX_OUTPUT_BYTES = 10_000_000;
+// #3646: `git add -A` walks the whole working tree; give it an explicit, larger
+// timeout than the inherited 30s default so a big repo (multiplied across N
+// workspace members) doesn't fail checkpoint capture.
+const CHECKPOINT_ADD_TIMEOUT_MS = 120_000;
 const WORKSPACE_GIT_HARDENED_CONFIG_ARGS = [
   "-c",
   "core.fsmonitor=false",
@@ -684,6 +688,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           cwd: input.cwd,
           args: ["add", "-A", "--", "."],
           env: commitEnv,
+          timeoutMs: CHECKPOINT_ADD_TIMEOUT_MS,
         });
 
         const writeTreeResult = yield* execute({

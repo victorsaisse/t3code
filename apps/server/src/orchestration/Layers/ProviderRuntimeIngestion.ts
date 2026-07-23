@@ -1721,7 +1721,14 @@ const make = Effect.gen(function* () {
           : undefined;
         const workspaceCwd =
           checkpointContext?.worktreePath ?? checkpointContext?.workspaceRoot ?? undefined;
-        if (turnId && checkpointContext && workspaceCwd && isGitRepository(workspaceCwd)) {
+        // A workspace thread's cwd is the non-git shared root, but its member
+        // worktrees are real repos - so allow the placeholder (which reliably
+        // triggers the per-repo capture in CheckpointReactor) without a git
+        // check on the shared root.
+        const isWorkspaceThread = (checkpointContext?.worktrees.length ?? 0) > 0;
+        const gitOk =
+          isWorkspaceThread || (workspaceCwd !== undefined && isGitRepository(workspaceCwd));
+        if (turnId && checkpointContext && (isWorkspaceThread || workspaceCwd) && gitOk) {
           // Skip if a checkpoint already exists for this turn. A real
           // (non-placeholder) capture from CheckpointReactor should not
           // be clobbered, and dispatching a duplicate placeholder for the
