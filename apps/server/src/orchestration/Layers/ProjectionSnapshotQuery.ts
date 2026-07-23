@@ -2195,6 +2195,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         settledOverride: threadRow.value.settledOverride,
         settledAt: threadRow.value.settledAt,
         deletedAt: null,
+        workspaceId: threadRow.value.workspaceId,
+        workspaceRoot: threadRow.value.workspaceRoot,
+        worktrees: threadRow.value.worktrees,
         messages: messageRows.map((row) => {
           const message = {
             id: row.messageId,

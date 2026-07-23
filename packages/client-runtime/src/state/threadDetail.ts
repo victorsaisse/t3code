@@ -60,6 +60,14 @@ export function mergeEnvironmentThread(
     settledOverride: shell.settledOverride,
     settledAt: shell.settledAt,
     session: shell.session,
+    // The shell snapshot is the authoritative source for a thread's workspace
+    // binding: it is refreshed by the shell stream the moment the worktree
+    // fan-out records it, whereas the thread-detail event stream does not carry
+    // these fields. Merging them from the shell keeps the chat header's
+    // workspace breadcrumb and repo pill correct during and after the turn.
+    workspaceId: shell.workspaceId,
+    workspaceRoot: shell.workspaceRoot,
+    worktrees: shell.worktrees,
   };
 }
 
