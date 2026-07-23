@@ -229,6 +229,20 @@ export function AnnotatableCodeView({
     [filesByKey, sectionId, sectionTitle],
   );
 
+  // The gutter "+" reports only a line range (no file). Start the comment on the
+  // sole rendered file when there is exactly one - which is always true in the
+  // workspace diff drill-in (one file per view). Multi-file callers still comment
+  // via click-drag line selection (onLineSelectionEnd), which does carry context.
+  const beginGutterComment = useCallback(
+    (range: SelectedLineRange | null) => {
+      if (!range || items.length !== 1) return;
+      const item = items[0];
+      if (!item || item.type !== "diff") return;
+      beginComment(range, { item });
+    },
+    [beginComment, items],
+  );
+
   const hasOpenComment = draft !== null;
   return (
     <CodeView<DiffCommentAnnotationGroup>
@@ -241,6 +255,11 @@ export function AnnotatableCodeView({
         ...options,
         enableGutterUtility: !hasOpenComment,
         enableLineSelection: !hasOpenComment,
+        // The gutter "+" only sets a range (no item context), so start the
+        // comment on the single visible file when it is unambiguous. Without
+        // this the "+" button renders but clicking it does nothing - only a
+        // click-drag line selection (onLineSelectionEnd) opened a comment.
+        onGutterUtilityClick: beginGutterComment,
         onLineSelectionEnd: beginComment,
       }}
       renderHeaderPrefix={(item) =>
