@@ -267,7 +267,7 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
   // Full thread context menu (matches project threads): mark unread, copy path,
   // copy id, delete. deleteThread from useThreadActions handles workspace-thread
   // worktree cleanup (N member worktrees + shared root).
-  const { deleteThread } = useThreadActions();
+  const { deleteThread, archiveThread } = useThreadActions();
   const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
   const confirmThreadDelete = useClientSettings((settings) => settings.confirmThreadDelete);
   const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{ threadId: ThreadId }>({
@@ -342,12 +342,27 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
             { id: "mark-unread", label: "Mark unread" },
             { id: "copy-path", label: "Copy Path" },
             { id: "copy-thread-id", label: "Copy Thread ID" },
+            { id: "archive", label: "Archive thread" },
             { id: "delete", label: "Delete", destructive: true, icon: "trash" },
           ],
           position,
         );
         if (choice === "rename") {
           startRename(thread);
+          return;
+        }
+        if (choice === "archive") {
+          const result = await archiveThread(threadRef);
+          if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Failed to archive thread",
+                description: error instanceof Error ? error.message : "An error occurred.",
+              }),
+            );
+          }
           return;
         }
         if (choice === "mark-unread") {
@@ -396,6 +411,7 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
       })();
     },
     [
+      archiveThread,
       confirmThreadDelete,
       copyPathToClipboard,
       copyThreadIdToClipboard,
