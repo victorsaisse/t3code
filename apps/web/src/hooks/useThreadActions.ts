@@ -226,7 +226,12 @@ export function useThreadActions() {
       const displayWorktreePath = orphanedWorktreePath
         ? formatWorktreePathForDisplay(orphanedWorktreePath)
         : null;
-      const canDeleteWorktree = orphanedWorktreePath !== null && threadProject !== null;
+      // Workspace threads own N member worktrees + a non-git shared root; the
+      // server-side deletion reactor cleans those up (it can rmdir the shared
+      // root, which the single-repo removeWorktree cannot). Skip the per-thread
+      // worktree prompt/removal for them here.
+      const canDeleteWorktree =
+        orphanedWorktreePath !== null && threadProject !== null && thread.worktrees.length === 0;
       const localApi = readLocalApi();
       let shouldDeleteWorktree = false;
       if (canDeleteWorktree && localApi) {

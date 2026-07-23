@@ -406,7 +406,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.delete": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
@@ -423,6 +423,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           deletedAt: occurredAt,
+          // Carried for the deletion reactor's workspace worktree cleanup;
+          // omitted for ordinary threads so their payload is unchanged.
+          ...(thread.workspaceRoot !== null ? { workspaceRoot: thread.workspaceRoot } : {}),
+          ...(thread.worktrees.length > 0 ? { worktrees: thread.worktrees } : {}),
         },
       };
     }

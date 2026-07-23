@@ -1054,6 +1054,12 @@ export const ThreadCreatedPayload = Schema.Struct({
 export const ThreadDeletedPayload = Schema.Struct({
   threadId: ThreadId,
   deletedAt: IsoDateTime,
+  // Carried so the server-side deletion reactor can clean up a workspace
+  // thread's member worktrees and shared root without re-reading the (now
+  // soft-deleted) thread. Optional (omitted) for ordinary single-repo threads,
+  // so their event payload is unchanged.
+  workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  worktrees: Schema.optional(Schema.Array(WorkspaceWorktree)),
 });
 
 export const ThreadArchivedPayload = Schema.Struct({
