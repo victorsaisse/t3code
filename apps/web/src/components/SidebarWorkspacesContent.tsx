@@ -11,7 +11,6 @@ import { MAX_MEMBER_LABEL_LENGTH } from "@t3tools/shared/path";
 import type { EnvironmentId, ThreadId, WorkspaceId, WorkspaceMember } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import {
-  ArchiveIcon,
   BoxesIcon,
   ChevronRightIcon,
   LoaderIcon,
@@ -248,7 +247,6 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
   const { workspace, threads, activeThreadKey, expanded, onToggleExpanded, onNavigateThread } =
     props;
   const deleteWorkspace = useAtomCommand(workspaceEnvironment.delete, { reportFailure: false });
-  const archiveWorkspace = useAtomCommand(workspaceEnvironment.archive, { reportFailure: false });
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -414,13 +412,6 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
     });
   }, [deleteWorkspace, workspace.environmentId, workspace.id]);
 
-  const handleArchive = useCallback(async () => {
-    await archiveWorkspace({
-      environmentId: workspace.environmentId,
-      input: { workspaceId: workspace.id },
-    });
-  }, [archiveWorkspace, workspace.environmentId, workspace.id]);
-
   const handleNewWorkspaceThread = useCallback(() => {
     void startWorkspaceThread(workspace);
   }, [startWorkspaceThread, workspace]);
@@ -475,21 +466,6 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
             <TooltipPopup side="top">
               {memberSummary ? `New thread across ${memberSummary}` : "New workspace thread"}
             </TooltipPopup>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label={`Archive workspace ${workspace.title}`}
-                  className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
-                  onClick={handleArchive}
-                >
-                  <ArchiveIcon className="size-3.5" />
-                </button>
-              }
-            />
-            <TooltipPopup side="top">Archive workspace</TooltipPopup>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger

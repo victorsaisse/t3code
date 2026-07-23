@@ -34,7 +34,6 @@ export type DeleteProjectInput = CommandInput<"project.delete">;
 export type CreateWorkspaceInput = CommandInput<"workspace.create">;
 export type UpdateWorkspaceInput = CommandInput<"workspace.meta.update">;
 export type DeleteWorkspaceInput = CommandInput<"workspace.delete">;
-export type ArchiveWorkspaceInput = CommandInput<"workspace.archive">;
 export type CreateThreadInput = CommandInput<"thread.create">;
 export type DeleteThreadInput = CommandInput<"thread.delete">;
 export type ArchiveThreadInput = CommandInput<"thread.archive">;
@@ -145,16 +144,6 @@ export const deleteWorkspace: (input: DeleteWorkspaceInput) => CommandEffect = E
   return yield* dispatch({
     ...input,
     type: "workspace.delete",
-    commandId: yield* commandId(input),
-  });
-});
-
-export const archiveWorkspace: (input: ArchiveWorkspaceInput) => CommandEffect = Effect.fn(
-  "EnvironmentCommands.archiveWorkspace",
-)(function* (input) {
-  return yield* dispatch({
-    ...input,
-    type: "workspace.archive",
     commandId: yield* commandId(input),
   });
 });

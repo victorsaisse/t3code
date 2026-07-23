@@ -14,7 +14,6 @@ import {
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
-  WorkspaceArchivedPayload,
   WorkspaceCreatedPayload,
   WorkspaceDeletedPayload,
   WorkspaceMetaUpdatedPayload,
@@ -282,7 +281,6 @@ export function projectEvent(
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
             deletedAt: null,
-            archivedAt: null,
           };
 
           return {
@@ -326,22 +324,6 @@ export function projectEvent(
                   ...workspace,
                   deletedAt: payload.deletedAt,
                   updatedAt: payload.deletedAt,
-                }
-              : workspace,
-          ),
-        })),
-      );
-
-    case "workspace.archived":
-      return decodeForEvent(WorkspaceArchivedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          workspaces: nextBase.workspaces.map((workspace) =>
-            workspace.id === payload.workspaceId
-              ? {
-                  ...workspace,
-                  archivedAt: payload.archivedAt,
-                  updatedAt: payload.updatedAt,
                 }
               : workspace,
           ),

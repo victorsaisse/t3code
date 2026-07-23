@@ -241,7 +241,6 @@ export const OrchestrationWorkspace = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
-  archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type OrchestrationWorkspace = typeof OrchestrationWorkspace.Type;
 
@@ -617,12 +616,6 @@ const WorkspaceDeleteCommand = Schema.Struct({
   force: Schema.optional(Schema.Boolean),
 });
 
-const WorkspaceArchiveCommand = Schema.Struct({
-  type: Schema.Literal("workspace.archive"),
-  commandId: CommandId,
-  workspaceId: WorkspaceId,
-});
-
 const ThreadCreateCommand = Schema.Struct({
   type: Schema.Literal("thread.create"),
   commandId: CommandId,
@@ -840,7 +833,6 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   WorkspaceCreateCommand,
   WorkspaceMetaUpdateCommand,
   WorkspaceDeleteCommand,
-  WorkspaceArchiveCommand,
   ThreadCreateCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
@@ -867,7 +859,6 @@ export const ClientOrchestrationCommand = Schema.Union([
   WorkspaceCreateCommand,
   WorkspaceMetaUpdateCommand,
   WorkspaceDeleteCommand,
-  WorkspaceArchiveCommand,
   ThreadCreateCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
@@ -975,7 +966,6 @@ export const OrchestrationEventType = Schema.Literals([
   "workspace.created",
   "workspace.meta-updated",
   "workspace.deleted",
-  "workspace.archived",
   "thread.created",
   "thread.deleted",
   "thread.archived",
@@ -1050,12 +1040,6 @@ export const WorkspaceMetaUpdatedPayload = Schema.Struct({
 export const WorkspaceDeletedPayload = Schema.Struct({
   workspaceId: WorkspaceId,
   deletedAt: IsoDateTime,
-});
-
-export const WorkspaceArchivedPayload = Schema.Struct({
-  workspaceId: WorkspaceId,
-  archivedAt: IsoDateTime,
-  updatedAt: IsoDateTime,
 });
 
 export const ThreadCreatedPayload = Schema.Struct({
@@ -1271,11 +1255,6 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("workspace.deleted"),
     payload: WorkspaceDeletedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("workspace.archived"),
-    payload: WorkspaceArchivedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

@@ -37,8 +37,7 @@ const makeProjectionWorkspaceRepository = Effect.gen(function* () {
           default_model_selection_json,
           created_at,
           updated_at,
-          deleted_at,
-          archived_at
+          deleted_at
         )
         VALUES (
           ${row.workspaceId},
@@ -47,8 +46,7 @@ const makeProjectionWorkspaceRepository = Effect.gen(function* () {
           ${row.defaultModelSelection !== null ? JSON.stringify(row.defaultModelSelection) : null},
           ${row.createdAt},
           ${row.updatedAt},
-          ${row.deletedAt},
-          ${row.archivedAt}
+          ${row.deletedAt}
         )
         ON CONFLICT (workspace_id)
         DO UPDATE SET
@@ -57,8 +55,7 @@ const makeProjectionWorkspaceRepository = Effect.gen(function* () {
           default_model_selection_json = excluded.default_model_selection_json,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
-          deleted_at = excluded.deleted_at,
-          archived_at = excluded.archived_at
+          deleted_at = excluded.deleted_at
       `,
   });
 
@@ -74,8 +71,7 @@ const makeProjectionWorkspaceRepository = Effect.gen(function* () {
           default_model_selection_json AS "defaultModelSelection",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
-          deleted_at AS "deletedAt",
-          archived_at AS "archivedAt"
+          deleted_at AS "deletedAt"
         FROM projection_workspaces
         WHERE workspace_id = ${workspaceId}
       `,
@@ -93,8 +89,7 @@ const makeProjectionWorkspaceRepository = Effect.gen(function* () {
           default_model_selection_json AS "defaultModelSelection",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
-          deleted_at AS "deletedAt",
-          archived_at AS "archivedAt"
+          deleted_at AS "deletedAt"
         FROM projection_workspaces
         ORDER BY created_at ASC, workspace_id ASC
       `,
