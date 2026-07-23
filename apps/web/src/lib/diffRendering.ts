@@ -239,6 +239,41 @@ export function buildFileDiffRenderKey(fileDiff: FileDiffMetadata): string {
   return fileDiff.cacheKey ?? `${fileDiff.prevName ?? "none"}:${fileDiff.name}`;
 }
 
+export interface DiffLineStat {
+  readonly additions: number;
+  readonly deletions: number;
+}
+
+/**
+ * Added/removed line counts for one file, summed from the numeric per-hunk
+ * `additionLines`/`deletionLines` tallies. NOTE: these are the NUMBER fields on
+ * `Hunk`, not the same-named `string[]` fields on `FileDiffMetadata` (which hold
+ * line contents and would be the wrong count).
+ */
+export function computeFileDiffStats(fileDiff: FileDiffMetadata): DiffLineStat {
+  return fileDiff.hunks.reduce<DiffLineStat>(
+    (acc, hunk) => ({
+      additions: acc.additions + hunk.additionLines,
+      deletions: acc.deletions + hunk.deletionLines,
+    }),
+    { additions: 0, deletions: 0 },
+  );
+}
+
+/** Sum of {@link computeFileDiffStats} across a set of files (one repo's total). */
+export function sumFileDiffStats(files: ReadonlyArray<FileDiffMetadata>): DiffLineStat {
+  return files.reduce<DiffLineStat>(
+    (acc, file) => {
+      const stat = computeFileDiffStats(file);
+      return {
+        additions: acc.additions + stat.additions,
+        deletions: acc.deletions + stat.deletions,
+      };
+    },
+    { additions: 0, deletions: 0 },
+  );
+}
+
 export function getDiffCollapseIconClassName(fileDiff: FileDiffMetadata): string {
   switch (fileDiff.type) {
     case "new":
