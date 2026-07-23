@@ -556,6 +556,15 @@ const make = Effect.gen(function* () {
     if (existingSessionThreadId) {
       const runtimeModeChanged = thread.runtimeMode !== thread.session?.runtimeMode;
       const cwdChanged = effectiveCwd !== activeSession?.cwd;
+      // A workspace repo attached mid-conversation (via the MCP attach tool)
+      // widens the desired additionalDirectories, but the provider froze its set
+      // at session start - so restart to make the new worktree visible. Compared
+      // as sets so ordering never triggers a spurious restart.
+      const activeAdditionalDirectories = activeSession?.additionalDirectories ?? [];
+      const attachedSetChanged =
+        workspaceAdditionalDirectories.length !== activeAdditionalDirectories.length ||
+        new Set([...workspaceAdditionalDirectories, ...activeAdditionalDirectories]).size !==
+          workspaceAdditionalDirectories.length;
       const sessionModelSwitch = (yield* providerService.getCapabilities(desiredInstanceId))
         .sessionModelSwitch;
       const modelChanged =
@@ -574,6 +583,7 @@ const make = Effect.gen(function* () {
       if (
         !runtimeModeChanged &&
         !cwdChanged &&
+        !attachedSetChanged &&
         !instanceChanged &&
         !shouldRestartForModelChange &&
         !shouldRestartForModelSelectionChange
@@ -597,6 +607,9 @@ const make = Effect.gen(function* () {
         previousCwd: activeSession?.cwd,
         desiredCwd: effectiveCwd,
         cwdChanged,
+        attachedSetChanged,
+        previousAttachedCount: activeAdditionalDirectories.length,
+        desiredAttachedCount: workspaceAdditionalDirectories.length,
         modelChanged,
         instanceChanged,
         shouldRestartForModelChange,

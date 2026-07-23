@@ -3621,6 +3621,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(modelSelection?.model ? { model: modelSelection.model } : {}),
         ...(threadId ? { threadId } : {}),
+        // Round-trip the workspace attach set so the reactor can detect when a
+        // mid-conversation attach widens it (attachedSetChanged) and restart.
+        ...(input.additionalDirectories && input.additionalDirectories.length > 0
+          ? { additionalDirectories: input.additionalDirectories }
+          : {}),
+        ...(input.repos && input.repos.length > 0 ? { repos: input.repos } : {}),
         resumeCursor: {
           ...(threadId ? { threadId } : {}),
           ...(sessionId ? { resume: sessionId } : {}),
