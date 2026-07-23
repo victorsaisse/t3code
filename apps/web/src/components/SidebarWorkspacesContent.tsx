@@ -1,14 +1,28 @@
-import type { EnvironmentWorkspace } from "@t3tools/client-runtime/state/shell";
+import type {
+  EnvironmentThreadShell,
+  EnvironmentWorkspace,
+} from "@t3tools/client-runtime/state/shell";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
-import type { WorkspaceMember } from "@t3tools/contracts";
-import { BoxesIcon, LoaderIcon, PlusIcon, SquarePenIcon, Trash2Icon } from "lucide-react";
+import type { EnvironmentId, ThreadId, WorkspaceId, WorkspaceMember } from "@t3tools/contracts";
+import { useNavigate, useParams } from "@tanstack/react-router";
+import {
+  BoxesIcon,
+  ChevronRightIcon,
+  LoaderIcon,
+  PlusIcon,
+  SquarePenIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { memo, useCallback, useMemo, useState } from "react";
 
 import { useWorkspaceThreadHandler } from "../hooks/useHandleNewThread";
 import { newWorkspaceId } from "../lib/utils";
-import { useProjects, useWorkspaces } from "../state/entities";
+import { useProjects, useThreadShells, useWorkspaces } from "../state/entities";
 import { useAtomCommand } from "../state/use-atom-command";
 import { workspaceEnvironment } from "../state/workspaces";
+import { buildThreadRouteParams } from "../threadRoutes";
+import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import {
@@ -22,7 +36,15 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Input } from "./ui/input";
-import { SidebarGroup, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "./ui/sidebar";
+import {
+  SidebarGroup,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
+} from "./ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const SIDEBAR_ICON_ACTION_BUTTON_CLASS =
@@ -205,8 +227,14 @@ const AddWorkspaceDialog = memo(function AddWorkspaceDialog(props: {
 
 const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
   workspace: EnvironmentWorkspace;
+  threads: ReadonlyArray<EnvironmentThreadShell>;
+  activeThreadKey: string | null;
+  expanded: boolean;
+  onToggleExpanded: (workspaceId: WorkspaceId) => void;
+  onNavigateThread: (thread: EnvironmentThreadShell) => void;
 }) {
-  const { workspace } = props;
+  const { workspace, threads, activeThreadKey, expanded, onToggleExpanded, onNavigateThread } =
+    props;
   const deleteWorkspace = useAtomCommand(workspaceEnvironment.delete, { reportFailure: false });
   const startWorkspaceThread = useWorkspaceThreadHandler();
   const memberCount = workspace.members.length;
@@ -223,10 +251,28 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
     void startWorkspaceThread(workspace);
   }, [startWorkspaceThread, workspace]);
 
+  // Clicking the row toggles the thread list rather than starting a new thread:
+  // the pen icon is the single, explicit affordance for "new workspace thread".
+  // (Previously the whole row started a thread, so every click minted a fresh
+  // draft - the "toggling between threads and new" bug.)
+  const handleToggle = useCallback(() => {
+    onToggleExpanded(workspace.id);
+  }, [onToggleExpanded, workspace.id]);
+
   return (
     <SidebarMenuItem className="rounded-md">
       <div className="group/workspace-row relative flex items-center">
-        <SidebarMenuButton className="h-8 gap-2 pr-14" onClick={handleNewWorkspaceThread}>
+        <SidebarMenuButton
+          className="h-8 gap-1.5 pr-14"
+          onClick={handleToggle}
+          aria-expanded={expanded}
+        >
+          <ChevronRightIcon
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-150",
+              expanded && "rotate-90",
+            )}
+          />
           <BoxesIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
           <span className="flex min-w-0 flex-1 items-center gap-2">
             <span className="truncate text-xs font-medium text-foreground/90">
@@ -273,6 +319,36 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
           </Tooltip>
         </div>
       </div>
+      {expanded ? (
+        threads.length > 0 ? (
+          <SidebarMenuSub>
+            {threads.map((thread) => {
+              const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+              return (
+                <SidebarMenuSubItem key={threadKey}>
+                  <SidebarMenuSubButton
+                    size="sm"
+                    isActive={threadKey === activeThreadKey}
+                    render={
+                      <button
+                        type="button"
+                        title={thread.title}
+                        onClick={() => onNavigateThread(thread)}
+                      >
+                        <span className="truncate">{thread.title}</span>
+                      </button>
+                    }
+                  />
+                </SidebarMenuSubItem>
+              );
+            })}
+          </SidebarMenuSub>
+        ) : (
+          <div className="mx-3.5 border-sidebar-border border-l py-1 pl-4 text-[11px] text-muted-foreground/50">
+            No threads yet
+          </div>
+        )
+      ) : null}
     </SidebarMenuItem>
   );
 });
@@ -283,7 +359,64 @@ const SidebarWorkspaceRow = memo(function SidebarWorkspaceRow(props: {
  */
 export const SidebarWorkspacesContent = memo(function SidebarWorkspacesContent() {
   const workspaces = useWorkspaces();
+  const threads = useThreadShells();
+  const navigate = useNavigate();
+  const routeParams = useParams({ strict: false });
   const [addOpen, setAddOpen] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
+
+  const activeThreadKey = useMemo(() => {
+    const environmentId = routeParams.environmentId;
+    const threadId = routeParams.threadId;
+    return environmentId && threadId
+      ? scopedThreadKey(scopeThreadRef(environmentId as EnvironmentId, threadId as ThreadId))
+      : null;
+  }, [routeParams.environmentId, routeParams.threadId]);
+
+  // Threads whose workspaceId is set belong to a workspace, not to their
+  // primary member project - the Projects group filters them out (see
+  // Sidebar.tsx threadsByProjectKey), and they are listed here instead.
+  const threadsByWorkspaceId = useMemo(() => {
+    const map = new Map<string, EnvironmentThreadShell[]>();
+    for (const thread of threads) {
+      if (thread.workspaceId === null || thread.archivedAt !== null) {
+        continue;
+      }
+      const existing = map.get(thread.workspaceId);
+      if (existing) {
+        existing.push(thread);
+      } else {
+        map.set(thread.workspaceId, [thread]);
+      }
+    }
+    // ISO-8601 UTC timestamps sort lexicographically; newest thread first.
+    for (const list of map.values()) {
+      list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    }
+    return map;
+  }, [threads]);
+
+  const toggleExpanded = useCallback((workspaceId: WorkspaceId) => {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(workspaceId)) {
+        next.delete(workspaceId);
+      } else {
+        next.add(workspaceId);
+      }
+      return next;
+    });
+  }, []);
+
+  const navigateThread = useCallback(
+    (thread: EnvironmentThreadShell) => {
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
+      });
+    },
+    [navigate],
+  );
 
   return (
     <SidebarGroup className="px-2 pt-2 pb-0">
@@ -310,12 +443,29 @@ export const SidebarWorkspacesContent = memo(function SidebarWorkspacesContent()
       </div>
       {workspaces.length > 0 ? (
         <SidebarMenu>
-          {workspaces.map((workspace) => (
-            <SidebarWorkspaceRow
-              key={`${workspace.environmentId}:${workspace.id}`}
-              workspace={workspace}
-            />
-          ))}
+          {workspaces.map((workspace) => {
+            const workspaceThreads = threadsByWorkspaceId.get(workspace.id) ?? [];
+            // Keep the workspace open whenever the active thread lives inside it,
+            // so navigating to a workspace thread reveals and highlights it.
+            const containsActiveThread =
+              activeThreadKey !== null &&
+              workspaceThreads.some(
+                (thread) =>
+                  scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
+                  activeThreadKey,
+              );
+            return (
+              <SidebarWorkspaceRow
+                key={`${workspace.environmentId}:${workspace.id}`}
+                workspace={workspace}
+                threads={workspaceThreads}
+                activeThreadKey={activeThreadKey}
+                expanded={expandedIds.has(workspace.id) || containsActiveThread}
+                onToggleExpanded={toggleExpanded}
+                onNavigateThread={navigateThread}
+              />
+            );
+          })}
         </SidebarMenu>
       ) : (
         <button

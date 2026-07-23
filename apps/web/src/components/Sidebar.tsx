@@ -1262,7 +1262,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       });
     };
     const visibleProjectThreads = sortThreads(
-      projectThreads.filter((thread) => thread.archivedAt === null),
+      // Workspace threads live under their workspace, not their member project.
+      projectThreads.filter((thread) => thread.archivedAt === null && thread.workspaceId === null),
       threadSortOrder,
     );
     const projectStatus = resolveProjectStatusIndicator(
@@ -3205,6 +3206,11 @@ export default function Sidebar() {
   const threadsByProjectKey = useMemo(() => {
     const next = new Map<string, SidebarThreadSummary[]>();
     for (const thread of sidebarThreads) {
+      // Workspace threads are grouped under their workspace (see
+      // SidebarWorkspacesContent), not under their primary member project.
+      if (thread.workspaceId !== null) {
+        continue;
+      }
       const physicalKey =
         projectPhysicalKeyByScopedRef.get(
           scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
