@@ -72,6 +72,7 @@ function commandToAggregateRef(command: OrchestrationCommand): {
     case "workspace.create":
     case "workspace.meta.update":
     case "workspace.delete":
+    case "workspace.archive":
       return {
         aggregateKind: "workspace",
         aggregateId: command.workspaceId,

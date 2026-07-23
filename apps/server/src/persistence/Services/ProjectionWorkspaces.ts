@@ -22,6 +22,7 @@ export const ProjectionWorkspace = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
+  archivedAt: Schema.NullOr(IsoDateTime),
 });
 export type ProjectionWorkspace = typeof ProjectionWorkspace.Type;
 

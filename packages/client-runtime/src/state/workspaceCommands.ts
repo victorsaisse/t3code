@@ -3,9 +3,11 @@ import { Atom } from "effect/unstable/reactivity";
 
 import { createAtomCommandScheduler, createEnvironmentCommand } from "./runtime.ts";
 import {
+  type ArchiveWorkspaceInput,
   type CreateWorkspaceInput,
   type DeleteWorkspaceInput,
   type UpdateWorkspaceInput,
+  archiveWorkspace,
   createWorkspace,
   deleteWorkspace,
   updateWorkspace,
@@ -13,6 +15,7 @@ import {
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 
 export type {
+  ArchiveWorkspaceInput,
   CreateWorkspaceInput,
   DeleteWorkspaceInput,
   UpdateWorkspaceInput,
@@ -47,6 +50,12 @@ export function createWorkspaceEnvironmentAtoms<R, E>(
     delete: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:workspace:delete",
       execute: (input: DeleteWorkspaceInput) => deleteWorkspace(input),
+      scheduler: workspaceScheduler,
+      concurrency: workspaceConcurrency,
+    }),
+    archive: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:workspace:archive",
+      execute: (input: ArchiveWorkspaceInput) => archiveWorkspace(input),
       scheduler: workspaceScheduler,
       concurrency: workspaceConcurrency,
     }),

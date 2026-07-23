@@ -361,7 +361,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           default_model_selection_json AS "defaultModelSelection",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          archived_at AS "archivedAt"
         FROM projection_workspaces
         ORDER BY created_at ASC, workspace_id ASC
       `,
@@ -779,7 +780,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           default_model_selection_json AS "defaultModelSelection",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          archived_at AS "archivedAt"
         FROM projection_workspaces
         WHERE workspace_id = ${workspaceId}
           AND deleted_at IS NULL
@@ -1287,6 +1289,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
                   deletedAt: row.deletedAt,
+                  archivedAt: row.archivedAt,
                 }),
               );
 
@@ -1449,6 +1452,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
                   deletedAt: row.deletedAt,
+                  archivedAt: row.archivedAt,
                 });
               }
               for (let index = 0; index < threadRows.length; index += 1) {
@@ -1674,7 +1678,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                     : Result.failVoid,
                 ),
                 workspaces: Arr.filterMap(workspaceRows, (row) =>
-                  row.deletedAt === null
+                  row.deletedAt === null && row.archivedAt === null
                     ? Result.succeed(mapWorkspaceShellRow(row))
                     : Result.failVoid,
                 ),

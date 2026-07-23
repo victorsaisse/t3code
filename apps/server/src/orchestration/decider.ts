@@ -370,6 +370,28 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         },
       };
     }
+    case "workspace.archive": {
+      yield* requireWorkspace({
+        readModel,
+        command,
+        workspaceId: command.workspaceId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "workspace",
+          aggregateId: command.workspaceId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "workspace.archived" as const,
+        payload: {
+          workspaceId: command.workspaceId,
+          archivedAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      };
+    }
 
     case "thread.create": {
       yield* requireProject({

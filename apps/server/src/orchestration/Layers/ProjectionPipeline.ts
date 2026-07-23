@@ -561,6 +561,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
             deletedAt: null,
+            archivedAt: null,
           });
           return;
 
@@ -594,6 +595,21 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...existingRow.value,
             deletedAt: event.payload.deletedAt,
             updatedAt: event.payload.deletedAt,
+          });
+          return;
+        }
+
+        case "workspace.archived": {
+          const existingRow = yield* projectionWorkspaceRepository.getById({
+            workspaceId: event.payload.workspaceId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionWorkspaceRepository.upsert({
+            ...existingRow.value,
+            archivedAt: event.payload.archivedAt,
+            updatedAt: event.payload.updatedAt,
           });
           return;
         }
