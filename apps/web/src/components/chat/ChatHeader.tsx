@@ -84,6 +84,11 @@ export const ChatHeader = memo(function ChatHeader({
     activeThreadEnvironmentId,
     primaryEnvironmentId,
   });
+  // A workspace thread's shared root is intentionally NOT a git repo (git ops
+  // iterate the member worktrees instead). Showing the single-repo git control
+  // there surfaces a meaningless "Initialize Git" / "Publish repository" CTA on
+  // the container; per-repo git actions live in the WorkspaceDiffPanel.
+  const isWorkspaceThread = Boolean(workspaceTitle) || (workspaceRepoLabels?.length ?? 0) > 0;
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
@@ -175,7 +180,7 @@ export const ChatHeader = memo(function ChatHeader({
             openInCwd={openInCwd}
           />
         )}
-        {activeProjectName && (
+        {activeProjectName && !isWorkspaceThread && (
           <GitActionsControl
             gitCwd={gitCwd}
             activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
